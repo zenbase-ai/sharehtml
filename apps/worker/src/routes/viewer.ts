@@ -1,0 +1,89 @@
+import { Hono } from "hono";
+import type { Env } from "../types.js";
+import { ShellView } from "../frontend/shell.js";
+import { getAuthenticatedUser } from "../utils/auth.js";
+import { getAssetUrls } from "../utils/assets.js";
+import { getRegistry } from "../utils/registry.js";
+
+const viewer = new Hono<{ Bindings: Env }>();
+
+// Viewer shell
+viewer.get("/d/:id", async (c) => {
+  const id = c.req.param("id");
+
+  const registry = getRegistry(c.env);
+  const doc = await registry.getDocument(id);
+
+  if (!doc) {
+    return c.html("<h1>Document not found</h1>", 404);
+  }
+
+  const user = await getAuthenticatedUser(c.req.raw, c.env);
+  if (!user) return c.text("Unauthorized", 401);
+  const email = user.email;
+  const assets = await getAssetUrls(c.env.ASSETS);
+
+  // Record view (don't block response, but ensure it completes)
+  c.executionCtx.waitUntil(registry.recordView(email, id).catch(() => {}));
+
+  return c.html(
+    ShellView({
+      docId: id,
+      title: doc.title as string,
+      ownerEmail: doc.owner_email as string,
+      email,
+      assets,
+    }),
+  );
+});
+
+// Raw HTML content (served in iframe)
+viewer.get("/d/:id/content", async (c) => {
+  const id = c.req.param("id");
+
+  const registry = getRegistry(c.env);
+  const doc = await registry.getDocument(id);
+
+  if (!doc) {
+    return c.text("Not found", 404);
+  }
+
+  const obj = await c.env.DOCUMENTS_BUCKET.get(`${id}/${doc.filename}`);
+
+  if (!obj) {
+    return c.text("Content not found", 404);
+  }
+
+  let html = await obj.text();
+
+  // Inject collaboration script before </body>
+  const assets = await getAssetUrls(c.env.ASSETS);
+  const script = `<script type="module" src="${assets.collabJs}"></script>`;
+  if (html.includes("</body>")) {
+    html = html.replace("</body>", `${script}</body>`);
+  } else {
+    html += script;
+  }
+
+  return c.html(html);
+});
+
+// WebSocket proxy to Document DO
+viewer.get("/d/:id/ws", async (c) => {
+  const id = c.req.param("id");
+
+  // Verify identity and pass to DO so it can't be spoofed
+  const user = await getAuthenticatedUser(c.req.raw, c.env);
+  const headers = new Headers(c.req.raw.headers);
+  if (user) {
+    headers.set("X-Verified-Email", user.email);
+  }
+
+  const docId = c.env.DOCUMENT_DO.idFromName(id);
+  const docDo = c.env.DOCUMENT_DO.get(docId);
+  return docDo.fetch(
+    new Request(`http://do/${id}/ws`, { headers }),
+  );
+});
+
+export { viewer };

@@ -1,0 +1,15 @@
+{
+  "name": "sharehtml",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter @sharehtml/worker dev",
+    "dev:worker": "pnpm --filter @sharehtml/worker dev",
+    "deploy": "pnpm --filter @sharehtml/worker run deploy",
+    "build": "pnpm -r build",
+    "setup": "pnpm --filter @sharehtml/worker run setup",
+    "sharehtml": "pnpm --filter @sharehtml/cli exec sharehtml"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

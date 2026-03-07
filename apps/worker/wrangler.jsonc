@@ -1,0 +1,44 @@
+{
+  "name": "sharehtml",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-04-01",
+  "vars": {},
+  "assets": {
+    "not_found_handling": "none",
+    "binding": "ASSETS",
+    "run_worker_first": ["/d/*", "/api/*", "/tokens/*", "/tokens", "/"],
+  },
+  "r2_buckets": [
+    {
+      "binding": "DOCUMENTS_BUCKET",
+      "bucket_name": "sharehtml-documents",
+    },
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "DOCUMENT_DO",
+        "class_name": "DocumentDO",
+      },
+      {
+        "name": "REGISTRY_DO",
+        "class_name": "RegistryDO",
+      },
+    ],
+  },
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true,
+    },
+    "traces": {
+      "enabled": true,
+    },
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["DocumentDO", "RegistryDO"],
+    },
+  ],
+}
