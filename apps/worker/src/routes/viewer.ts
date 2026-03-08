@@ -56,6 +56,16 @@ viewer.get("/d/:id/content", async (c) => {
 
   let html = await obj.text();
 
+  // Inject <base target="_blank"> so links open in new tabs instead of navigating the iframe
+  const baseTag = `<base target="_blank">`;
+  if (html.includes("<head>")) {
+    html = html.replace("<head>", `<head>${baseTag}`);
+  } else if (html.includes("<html")) {
+    html = html.replace(/<html[^>]*>/, `$&${baseTag}`);
+  } else {
+    html = baseTag + html;
+  }
+
   // Inject collaboration script before </body>
   const assets = await getAssetUrls(c.env.ASSETS);
   const script = `<script type="module" src="${assets.collabJs}"></script>`;

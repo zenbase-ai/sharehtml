@@ -1,7 +1,20 @@
 import { readFileSync } from "node:fs";
 import { resolve, dirname, extname } from "node:path";
 import { marked } from "marked";
+import { markedHighlight } from "marked-highlight";
+import hljs from "highlight.js";
 
+marked.use(
+  markedHighlight({
+    langPrefix: "hljs language-",
+    highlight(code, lang) {
+      if (lang && hljs.getLanguage(lang)) {
+        return hljs.highlight(code, { language: lang }).value;
+      }
+      return hljs.highlightAuto(code).value;
+    },
+  }),
+);
 marked.setOptions({ gfm: true, breaks: false });
 
 export function isMarkdownFile(filename: string): boolean {
@@ -63,6 +76,17 @@ td { border-bottom: 1px solid #ddd; padding: 6px 8px; }
 pre { background: #f5f5f5; border: 1px solid #ddd; padding: 12px; overflow-x: auto; margin: 16px 0; }
 pre code { background: none; border: none; padding: 0; }
 code { background: #f5f5f5; padding: 2px 4px; font-size: 12px; }
+.hljs-keyword, .hljs-selector-tag, .hljs-built_in { color: #6b4d7d; }
+.hljs-string, .hljs-attr { color: #4e6b3a; }
+.hljs-comment, .hljs-quote { color: #918d88; font-style: italic; }
+.hljs-number, .hljs-literal, .hljs-variable.constant_ { color: #7a5530; }
+.hljs-type, .hljs-title, .hljs-title.class_, .hljs-title.function_ { color: #2e5580; }
+.hljs-params { color: #555; }
+.hljs-meta, .hljs-tag { color: #76695a; }
+.hljs-attribute, .hljs-symbol { color: #4e6b3a; }
+.hljs-selector-class, .hljs-selector-id { color: #6b4d7d; }
+.hljs-addition { background: #eef6ee; }
+.hljs-deletion { background: #f6eeee; }
 blockquote { border-left: 2px solid #999; margin: 16px 0; padding: 4px 16px; color: #444; }
 hr { border: none; border-top: 1px solid #000; margin: 24px 0; }
 img { max-width: 100%; }
