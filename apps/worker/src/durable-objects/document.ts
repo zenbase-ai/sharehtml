@@ -376,12 +376,10 @@ export class DocumentDO extends DurableObject<Env> {
     const attachment = this.getAttachment(ws);
     if (!attachment) return;
 
-    // Only the comment author can resolve/unresolve
     this.sql.exec(
-      "UPDATE comments SET resolved = ?, updated_at = datetime('now') WHERE id = ? AND author_email = ?",
+      "UPDATE comments SET resolved = ?, updated_at = datetime('now') WHERE id = ?",
       msg.resolved ? 1 : 0,
       msg.id,
-      attachment.email,
     );
     this.broadcast({
       type: "comment:resolved",

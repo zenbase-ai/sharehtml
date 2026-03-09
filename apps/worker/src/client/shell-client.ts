@@ -1146,7 +1146,7 @@ function generateId() {
 }
 
 function relativeTime(dateStr: string) {
-  const date = new Date(dateStr);
+  const date = new Date(dateStr + "Z");
   const now = new Date();
   const diff = (now.getTime() - date.getTime()) / 1000;
   if (diff < 60) return "now";

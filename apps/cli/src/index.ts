@@ -4,6 +4,7 @@ import { deployCmd } from "./commands/deploy.js";
 import { listCmd } from "./commands/list.js";
 import { openCmd } from "./commands/open.js";
 import { deleteCmd } from "./commands/delete.js";
+import { pullCmd } from "./commands/pull.js";
 import { configCmd } from "./commands/config.js";
 
 const program = new Command();
@@ -17,6 +18,7 @@ program.addCommand(deployCmd);
 program.addCommand(listCmd);
 program.addCommand(openCmd);
 program.addCommand(deleteCmd);
+program.addCommand(pullCmd);
 program.addCommand(configCmd);
 
 program.parse();

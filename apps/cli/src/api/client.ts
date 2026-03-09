@@ -161,6 +161,23 @@ export async function deleteDocument(id: string): Promise<void> {
   await checkResponse(resp, "Delete");
 }
 
+export async function downloadDocument(id: string): Promise<{ filename: string; content: Uint8Array }> {
+  const { workerUrl, apiKey } = getClient();
+
+  const resp = await fetch(`${workerUrl}/api/documents/${id}/raw`, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+
+  await checkResponse(resp, "Download");
+
+  const disposition = resp.headers.get("Content-Disposition") || "";
+  const filenameMatch = disposition.match(/filename="(.+)"/);
+  const filename = filenameMatch?.[1] || `${id}.html`;
+  const content = new Uint8Array(await resp.arrayBuffer());
+
+  return { filename, content };
+}
+
 export function getDocumentUrl(id: string): string {
   const { workerUrl } = getClient();
   return `${workerUrl}/d/${id}`;

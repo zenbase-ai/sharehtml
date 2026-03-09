@@ -74,6 +74,28 @@ api.get("/documents", async (c) => {
   return c.json({ documents });
 });
 
+// Download raw document content
+api.get("/documents/:id/raw", async (c) => {
+  const id = c.req.param("id");
+  const registry = getRegistry(c.env);
+  const doc = await registry.getDocument(id);
+  if (!doc || doc.owner_email !== c.get("apiUser")) {
+    return c.json({ error: "not found" }, 404);
+  }
+
+  const object = await c.env.DOCUMENTS_BUCKET.get(`${id}/${doc.filename}`);
+  if (!object) {
+    return c.json({ error: "file not found in storage" }, 404);
+  }
+
+  return new Response(object.body, {
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Content-Disposition": `attachment; filename="${doc.filename.replace(/["\\]/g, "_")}"`,
+    },
+  });
+});
+
 // Get document metadata (ownership check)
 api.get("/documents/:id", async (c) => {
   const id = c.req.param("id");
