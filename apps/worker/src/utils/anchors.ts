@@ -1,4 +1,9 @@
-import type { Anchor, TextPositionSelector, TextQuoteSelector } from "@sharehtml/shared";
+import type {
+  Anchor,
+  ElementSelector,
+  TextPositionSelector,
+  TextQuoteSelector,
+} from "@sharehtml/shared";
 
 const CONTEXT_CHARS = 32;
 
@@ -21,6 +26,14 @@ export function getTextPositionSelector(
   if (!anchor) return null;
   const selector = anchor.selectors.find((item): item is TextPositionSelector => {
     return item.type === "TextPositionSelector";
+  });
+  return selector ?? null;
+}
+
+export function getElementSelector(anchor: Anchor | null | undefined): ElementSelector | null {
+  if (!anchor) return null;
+  const selector = anchor.selectors.find((item): item is ElementSelector => {
+    return item.type === "ElementSelector";
   });
   return selector ?? null;
 }

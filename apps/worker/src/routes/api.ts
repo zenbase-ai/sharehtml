@@ -15,13 +15,14 @@ interface DocumentSnapshot {
 
 async function migrateDocumentAnchors(
   documentDo: DurableObjectStub,
+  newHtml: string,
   oldText: string,
   newText: string,
 ): Promise<void> {
   const response = await documentDo.fetch("https://document.local/migrate-anchors", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ oldText, newText }),
+    body: JSON.stringify({ newHtml, oldText, newText }),
   });
 
   if (!response.ok) {
@@ -234,7 +235,7 @@ api.put("/documents/:id", async (c) => {
 
   try {
     if (oldText !== null && newText !== null) {
-      await migrateDocumentAnchors(documentDo, oldText, newText);
+      await migrateDocumentAnchors(documentDo, nextHtml, oldText, newText);
       didMigrateAnchors = true;
     }
 

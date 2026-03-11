@@ -708,12 +708,7 @@ function renderComments() {
   let idx = 0;
 
   for (const item of annotations) {
-    const card =
-      item.kind === "comment"
-        ? createCommentCard(item.comment)
-        : item.kind === "reaction"
-          ? createReactionCard((item as { group: ReactionGroup }).group)
-          : createComposeForm();
+    const card = createAnnotationCard(item);
 
     // Position card to align with its anchor in the document (desktop only)
     if (hasPixelPositions && item.id in allPixelPositions) {
@@ -746,6 +741,22 @@ function renderComments() {
   }
 }
 
+function createAnnotationCard(
+  item:
+    | { kind: "comment"; id: string; comment: Comment }
+    | { kind: "reaction"; id: string; group: ReactionGroup }
+    | { kind: "compose"; id: string },
+) {
+  switch (item.kind) {
+    case "comment":
+      return createCommentCard(item.comment);
+    case "reaction":
+      return createReactionCard(item.group);
+    case "compose":
+      return createComposeForm();
+  }
+}
+
 function updateSidebarSpacer() {
   if (!sidebarSpacer || iframeScrollHeight <= 0) return;
   // Collapse spacer, then measure actual content height using bounding rects
@@ -759,6 +770,11 @@ function updateSidebarSpacer() {
 }
 
 function reactionAnchorKey(anchor: Anchor): string | null {
+  const elementSelector = anchor?.selectors?.find((s) => s.type === "ElementSelector");
+  if (elementSelector && "cssSelector" in elementSelector && "tagName" in elementSelector) {
+    return `${elementSelector.tagName}:${elementSelector.cssSelector}`;
+  }
+
   const tqs = anchor?.selectors?.find((s) => s.type === "TextQuoteSelector");
   if (!tqs) return null;
   // Hash prefix+exact to get a CSS-safe key that distinguishes same text at different positions
@@ -770,13 +786,35 @@ function reactionAnchorKey(anchor: Anchor): string | null {
   return tqs.exact + "_" + (hash >>> 0).toString(36);
 }
 
+function getAnchorLabel(anchor: Anchor): string | null {
+  const textQuote = anchor.selectors?.find((selector) => selector.type === "TextQuoteSelector");
+  if (textQuote && "exact" in textQuote) {
+    return textQuote.exact;
+  }
+
+  const elementSelector = anchor.selectors?.find((selector) => selector.type === "ElementSelector");
+  if (!elementSelector || !("tagName" in elementSelector)) {
+    return null;
+  }
+
+  if (elementSelector.tagName === "img") {
+    if ("alt" in elementSelector && elementSelector.alt) {
+      return elementSelector.alt;
+    }
+    return "image";
+  }
+
+  return "chart";
+}
+
 function getReactionGroups(): ReactionGroup[] {
   const grouped = new Map<string, ReactionGroup>();
   for (const r of reactions) {
     const key = reactionAnchorKey(r.anchor);
     if (!key) continue;
-    const tqs = r.anchor.selectors!.find((s) => s.type === "TextQuoteSelector")!;
-    if (!grouped.has(key)) grouped.set(key, { anchor: r.anchor, text: tqs.exact, reactions: [] });
+    const label = getAnchorLabel(r.anchor) ?? "selection";
+
+    if (!grouped.has(key)) grouped.set(key, { anchor: r.anchor, text: label, reactions: [] });
     grouped.get(key)!.reactions.push(r);
   }
   return Array.from(grouped.values());
@@ -909,11 +947,11 @@ function createCommentCard(comment: Comment) {
 
   // Quoted text
   if (comment.anchor) {
-    const tqs = comment.anchor.selectors?.find((s) => s.type === "TextQuoteSelector");
-    if (tqs) {
+    const anchorLabel = getAnchorLabel(comment.anchor);
+    if (anchorLabel) {
       const quote = document.createElement("div");
       quote.className = "comment-quote";
-      quote.textContent = tqs.exact.length > 80 ? tqs.exact.slice(0, 80) + "..." : tqs.exact;
+      quote.textContent = anchorLabel.length > 80 ? anchorLabel.slice(0, 80) + "..." : anchorLabel;
       quote.addEventListener("click", () => {
         sendToIframe({ type: "highlight:activate", commentId: comment.id });
         if (window.innerWidth <= 768) closeSidebar();

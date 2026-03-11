@@ -1,3 +1,5 @@
+import type { Anchor, ElementSelector, Selector } from "@sharehtml/shared";
+
 (function () {
   const parent = window.parent;
   if (parent === window) return; // Not in iframe
@@ -23,20 +25,36 @@
     /* Hide iframe scrollbar when sidebar is open — scroll is driven by parent sidebar */
     html.hide-scrollbar { scrollbar-width: none; }
     html.hide-scrollbar::-webkit-scrollbar { display: none; }
-    .collab-highlight {
+    .collab-overlay-root {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      pointer-events: none;
+      z-index: 9998;
+    }
+    .collab-highlight-rect {
+      position: absolute;
       background: rgba(255,213,79,0.25);
-      cursor: pointer;
       transition: background 120ms ease;
       border-radius: 1px;
+      pointer-events: auto;
+      cursor: pointer;
     }
-    .collab-highlight:hover {
+    .collab-highlight-rect.hovered {
       background: rgba(255,213,79,0.45);
     }
-    .collab-highlight.active {
+    .collab-highlight-rect.active {
       background: rgba(255,213,79,0.5);
     }
-    .collab-selection {
+    .collab-selection-rect {
+      position: absolute;
       border-radius: 1px;
+    }
+    .collab-element-target {
+      outline: 2px solid rgba(255,213,79,0.55);
+      outline-offset: 2px;
+      cursor: pointer;
     }
     .selection-toolbar {
       position: absolute;
@@ -193,24 +211,36 @@
   `;
   document.head.appendChild(style);
 
+  const overlayRoot = document.createElement("div");
+  overlayRoot.className = "collab-overlay-root";
+  document.body.appendChild(overlayRoot);
+
   let toolbar: HTMLElement | null = null;
   let emojiPicker: HTMLElement | null = null;
-  let currentSelection: {
+  let activeHighlightId: string | null = null;
+  let hoveredHighlightId: string | null = null;
+  let hoveredAnnotatableElement: Element | null = null;
+  let renderedHighlights: HighlightComment[] = [];
+  const highlightRects = new Map<string, HTMLElement[]>();
+  const highlightPixelOffsets = new Map<string, number>();
+  const remoteSelections = new Map<string, HTMLElement[]>();
+  type LocalSelector = Selector;
+  type LocalAnchor = Anchor;
+
+  interface LocalSelection {
     text: string;
-    anchor: {
-      selectors: {
-        type: string;
-        exact?: string;
-        prefix?: string;
-        suffix?: string;
-        start?: number;
-        end?: number;
-        value?: string;
-      }[];
-    };
-    range: Range;
+    anchor: LocalAnchor;
     rect: DOMRect;
-  } | null = null;
+  }
+
+  const remoteSelectionState = new Map<
+    string,
+    {
+      color: string;
+      anchor: LocalAnchor;
+    }
+  >();
+  let currentSelection: LocalSelection | null = null;
   const QUICK_EMOJI = [
     "\u{1F44D}",
     "\u{2764}\u{FE0F}",
@@ -236,15 +266,7 @@
     const text = sel.toString().trim();
     if (!text) return null;
 
-    const selectors: {
-      type: string;
-      exact?: string;
-      prefix?: string;
-      suffix?: string;
-      start?: number;
-      end?: number;
-      value?: string;
-    }[] = [];
+    const selectors: LocalSelector[] = [];
 
     const exactText = getExactTextFromRange(range);
     const exactStart = getTextOffsetForRange(range);
@@ -277,9 +299,70 @@
     return {
       text,
       anchor: { selectors },
-      range: range.cloneRange(),
       rect: range.getBoundingClientRect(),
     };
+  }
+
+  function isAnnotatableElement(element: Element | null): element is HTMLImageElement | HTMLCanvasElement {
+    return Boolean(element) &&
+      (element instanceof HTMLImageElement || element instanceof HTMLCanvasElement);
+  }
+
+  function findAnnotatableElement(target: EventTarget | null): HTMLImageElement | HTMLCanvasElement | null {
+    if (!(target instanceof Element)) return null;
+    const element = target.closest("img, canvas");
+    return isAnnotatableElement(element) ? element : null;
+  }
+
+  function setHoveredAnnotatableElement(element: Element | null) {
+    if (hoveredAnnotatableElement === element) return;
+    hoveredAnnotatableElement?.classList.remove("collab-element-target");
+    hoveredAnnotatableElement = element;
+    hoveredAnnotatableElement?.classList.add("collab-element-target");
+  }
+
+  function getAnnotatableLabel(element: HTMLImageElement | HTMLCanvasElement): string {
+    if (element instanceof HTMLImageElement) {
+      const alt = element.getAttribute("alt")?.trim();
+      return alt ? `image: ${alt}` : "image";
+    }
+    return "chart";
+  }
+
+  function processElementSelection(
+    element: HTMLImageElement | HTMLCanvasElement,
+  ): LocalSelection {
+    const selectors: LocalSelector[] = [{
+      type: "ElementSelector",
+      cssSelector: getCssSelector(element),
+      tagName: element.tagName.toLowerCase(),
+      ordinal: getAnnotatableOrdinal(element),
+      src: element instanceof HTMLImageElement ? element.getAttribute("src") ?? undefined : undefined,
+      alt: element instanceof HTMLImageElement ? element.getAttribute("alt") ?? undefined : undefined,
+      width: getNumericElementDimension(element, "width"),
+      height: getNumericElementDimension(element, "height"),
+    }];
+
+    return {
+      text: getAnnotatableLabel(element),
+      anchor: { selectors },
+      rect: element.getBoundingClientRect(),
+    };
+  }
+
+  function getAnnotatableOrdinal(element: HTMLImageElement | HTMLCanvasElement): number {
+    const elements = Array.from(document.querySelectorAll(element.tagName.toLowerCase()));
+    return elements.indexOf(element) + 1;
+  }
+
+  function getNumericElementDimension(
+    element: HTMLImageElement | HTMLCanvasElement,
+    attribute: "width" | "height",
+  ): number | undefined {
+    const value = element.getAttribute(attribute);
+    if (!value) return undefined;
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : undefined;
   }
 
   // Track text selection (desktop)
@@ -291,14 +374,22 @@
     setTimeout(() => {
       currentSelection = processSelection();
       if (!currentSelection) {
-        if (!emojiPicker) removeToolbar();
-        sendToParent({ type: "selection:clear" });
-        return;
+        const annotatableElement = findAnnotatableElement(e.target);
+        if (annotatableElement) {
+          currentSelection = processElementSelection(annotatableElement);
+        }
       }
-      showToolbar(currentSelection.rect);
-      sendToParent(
-        { type: "selection:made", text: currentSelection.text, anchor: currentSelection.anchor },
-      );
+
+      if (!currentSelection) {
+        if (!emojiPicker) removeToolbar();
+        setHoveredAnnotatableElement(null);
+        sendToParent({ type: "selection:clear" });
+      } else {
+        showToolbar(currentSelection.rect);
+        sendToParent(
+          { type: "selection:made", text: currentSelection.text, anchor: currentSelection.anchor },
+        );
+      }
     }, 10);
   });
 
@@ -310,6 +401,21 @@
     ) {
       removeToolbar();
     }
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    if (isMobile) return;
+    if (window.getSelection()?.toString()) {
+      setHoveredAnnotatableElement(null);
+      return;
+    }
+    if (toolbar && toolbar.contains(e.target as Node)) return;
+    if (emojiPicker && emojiPicker.contains(e.target as Node)) return;
+    setHoveredAnnotatableElement(findAnnotatableElement(e.target));
+  });
+
+  document.addEventListener("mouseleave", () => {
+    setHoveredAnnotatableElement(null);
   });
 
   // Mobile: fixed bottom bar on selection change
@@ -473,6 +579,12 @@
       if (selectionTimer) clearTimeout(selectionTimer);
       selectionTimer = setTimeout(() => {
         currentSelection = processSelection();
+        if (!currentSelection) {
+          const activeElement = document.activeElement;
+          if (isAnnotatableElement(activeElement)) {
+            currentSelection = processElementSelection(activeElement);
+          }
+        }
         if (currentSelection) {
           if (mobileBarMode !== "actions") showMobileActions();
           mobileBar!.classList.add("visible");
@@ -484,6 +596,18 @@
           sendToParent({ type: "selection:clear" });
         }
       }, 200);
+    });
+
+    document.addEventListener("click", (event) => {
+      const annotatableElement = findAnnotatableElement(event.target);
+      if (!annotatableElement) return;
+
+      currentSelection = processElementSelection(annotatableElement);
+      if (mobileBarMode !== "actions") showMobileActions();
+      mobileBar!.classList.add("visible");
+      sendToParent(
+        { type: "selection:made", text: currentSelection.text, anchor: currentSelection.anchor },
+      );
     });
   }
 
@@ -630,22 +754,112 @@
   }
 
   function reportHighlightPositions() {
-    const positions: Record<string, number> = {};
+    const entries: Array<{ id: string; top: number }> = [];
     const pixelPositions: Record<string, number> = {};
-    let order = 0;
-    document.querySelectorAll(".collab-highlight").forEach((el) => {
-      const id = (el as HTMLElement).dataset.commentId;
-      if (id && !(id in positions)) {
-        positions[id] = order++;
-        pixelPositions[id] = el.getBoundingClientRect().top + window.scrollY;
-      }
+    for (const [id, top] of highlightPixelOffsets) {
+      pixelPositions[id] = top;
+      entries.push({ id, top });
+    }
+
+    entries.sort((left, right) => left.top - right.top);
+    const positions: Record<string, number> = {};
+    entries.forEach((entry, index) => {
+      positions[entry.id] = index;
     });
+
     sendToParent({
       type: "highlights:positions",
       positions,
       pixelPositions,
       scrollHeight: document.documentElement.scrollHeight,
     });
+  }
+
+  function syncOverlayRootBounds() {
+    overlayRoot.style.height = document.documentElement.scrollHeight + "px";
+  }
+
+  function clearHighlightRects() {
+    for (const rects of highlightRects.values()) {
+      for (const rect of rects) {
+        rect.remove();
+      }
+    }
+    highlightRects.clear();
+    highlightPixelOffsets.clear();
+  }
+
+  function clearRemoteSelectionRects() {
+    for (const rects of remoteSelections.values()) {
+      for (const rect of rects) {
+        rect.remove();
+      }
+    }
+    remoteSelections.clear();
+  }
+
+  function isEventWithinHighlight(eventTarget: EventTarget | null, commentId: string): boolean {
+    if (!(eventTarget instanceof HTMLElement)) return false;
+    return eventTarget.dataset.commentId === commentId;
+  }
+
+  function collectTextNodeFragments(range: Range): DOMRect[] {
+    const fragments: DOMRect[] = [];
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+
+    for (let current = walker.nextNode(); current; current = walker.nextNode()) {
+      if (!(current instanceof Text)) continue;
+      if (!current.textContent || current.textContent.length === 0) continue;
+      if (!range.intersectsNode(current)) continue;
+
+      const startOffset = current === range.startContainer ? range.startOffset : 0;
+      const endOffset =
+        current === range.endContainer ? range.endOffset : current.textContent.length;
+
+      if (startOffset >= endOffset) continue;
+
+      const fragmentRange = document.createRange();
+      fragmentRange.setStart(current, startOffset);
+      fragmentRange.setEnd(current, endOffset);
+
+      const nodeFragments = Array.from(fragmentRange.getClientRects()).filter((rect) => {
+        return rect.width > 0 && rect.height > 0;
+      });
+      fragments.push(...nodeFragments);
+      fragmentRange.detach();
+    }
+
+    return fragments;
+  }
+
+  function createOverlayRects(
+    fragments: DOMRect[],
+    className: string,
+    dataIdName: string,
+    dataIdValue: string,
+    onClick?: () => void,
+  ): HTMLElement[] {
+    const rects: HTMLElement[] = [];
+
+    for (const fragment of fragments) {
+      const rect = document.createElement("div");
+      rect.className = className;
+      rect.dataset[dataIdName] = dataIdValue;
+      rect.style.left = fragment.left + window.scrollX + "px";
+      rect.style.top = fragment.top + window.scrollY + "px";
+      rect.style.width = fragment.width + "px";
+      rect.style.height = fragment.height + "px";
+      if (onClick) {
+        rect.addEventListener("click", (event) => {
+          event.stopPropagation();
+          onClick();
+        });
+      }
+      overlayRoot.appendChild(rect);
+      rects.push(rect);
+    }
+
+    return rects;
   }
 
   // Sync scroll with parent sidebar
@@ -711,16 +925,7 @@
 
   interface HighlightComment {
     id: string;
-    anchor?: {
-      selectors?: {
-        type: string;
-        exact?: string;
-        prefix?: string;
-        suffix?: string;
-        start?: number;
-        end?: number;
-      }[];
-    } | null;
+    anchor?: LocalAnchor | null;
     resolved?: boolean;
     parent_id?: string | null;
   }
@@ -729,28 +934,27 @@
     const orphaned: string[] = [];
     for (const comment of comments) {
       if (!comment.anchor || comment.resolved || comment.parent_id) continue;
-      const textQuote = comment.anchor.selectors?.find((s) => s.type === "TextQuoteSelector");
-      if (!textQuote) continue;
-      const range = findAnchorRange(comment.anchor);
-      if (!range) orphaned.push(comment.id);
+      if (findAnchorFragments(comment.anchor).length === 0) orphaned.push(comment.id);
     }
     sendToParent({ type: "highlights:orphaned", ids: orphaned });
   }
 
   // Highlight rendering
   function renderHighlights(comments: HighlightComment[]) {
-    // Clear existing highlights by unwrapping mark elements
-    document.querySelectorAll(".collab-highlight").forEach((el) => {
-      const p = el.parentNode!;
-      while (el.firstChild) p.insertBefore(el.firstChild, el);
-      p.removeChild(el);
-    });
-    // Merge adjacent text nodes after unwrapping
-    document.body.normalize();
+    renderedHighlights = comments;
+    clearHighlightRects();
+    syncOverlayRootBounds();
 
     for (const comment of comments) {
-      if (!comment.anchor || comment.resolved) continue;
+      if (!comment.anchor) continue;
       applyHighlight(comment);
+    }
+
+    if (activeHighlightId) {
+      applyActiveHighlightState(activeHighlightId);
+    }
+    if (hoveredHighlightId) {
+      applyHoveredHighlightState();
     }
 
     // Report positions after layout is ready
@@ -759,55 +963,45 @@
     });
   }
 
-  function wrapRangeWithMarks(
-    range: Range,
-    createMark: () => HTMLElement,
-  ): HTMLElement[] {
-    const textNodes: Text[] = [];
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-    let node: Text | null;
-    let inRange = false;
-    while ((node = walker.nextNode() as Text | null)) {
-      if (node === range.startContainer) inRange = true;
-      if (inRange) textNodes.push(node);
-      if (node === range.endContainer) break;
-    }
-
-    const marks: HTMLElement[] = [];
-    for (const tn of textNodes) {
-      const start = tn === range.startContainer ? range.startOffset : 0;
-      const end = tn === range.endContainer ? range.endOffset : tn.textContent!.length;
-      if (start >= end) continue;
-
-      const wrapNode = start > 0 ? tn.splitText(start) : tn;
-      if (end - start < wrapNode.textContent!.length) {
-        wrapNode.splitText(end - start);
-      }
-
-      const mark = createMark();
-      wrapNode.parentNode!.insertBefore(mark, wrapNode);
-      mark.appendChild(wrapNode);
-      marks.push(mark);
-    }
-    return marks;
-  }
-
   function applyHighlight(comment: HighlightComment) {
     const anchor = comment.anchor;
     if (!anchor || !anchor.selectors) return;
+    const fragments = findAnchorFragments(anchor);
+    if (fragments.length === 0) return;
 
-    const range = findAnchorRange(anchor);
-    if (!range) return;
+    const top = Math.min(...fragments.map((fragment) => fragment.top + window.scrollY));
+    highlightPixelOffsets.set(comment.id, top);
 
-    wrapRangeWithMarks(range, () => {
-      const mark = document.createElement("mark");
-      mark.className = "collab-highlight";
-      mark.dataset.commentId = comment.id;
-      mark.addEventListener("click", () => {
+    if (comment.resolved) return;
+
+    const rects = createOverlayRects(
+      fragments,
+      "collab-highlight-rect",
+      "commentId",
+      comment.id,
+      comment.id === "__compose__"
+        ? undefined
+        : () => {
         sendToParent({ type: "highlight:click", commentId: comment.id });
-      });
-      return mark;
-    });
+        },
+    );
+    if (rects.length > 0) {
+      if (comment.id !== "__compose__") {
+        rects.forEach((rect) => {
+          rect.addEventListener("mouseenter", () => {
+            hoveredHighlightId = comment.id;
+            applyHoveredHighlightState();
+          });
+          rect.addEventListener("mouseleave", (event) => {
+            if (isEventWithinHighlight(event.relatedTarget, comment.id)) return;
+            if (hoveredHighlightId !== comment.id) return;
+            hoveredHighlightId = null;
+            applyHoveredHighlightState();
+          });
+        });
+      }
+      highlightRects.set(comment.id, rects);
+    }
   }
 
   function getTextOffsetForRange(range: Range): number {
@@ -827,9 +1021,7 @@
     return range.cloneContents().textContent || "";
   }
 
-  function findAnchorRange(
-    anchor: { selectors?: { type: string; exact?: string; prefix?: string; suffix?: string; start?: number; end?: number }[] },
-  ): Range | null {
+  function findAnchorRange(anchor: LocalAnchor): Range | null {
     if (!anchor?.selectors) return null;
 
     const quote = anchor.selectors.find((selector) => selector.type === "TextQuoteSelector");
@@ -850,6 +1042,76 @@
     if (!match) return null;
 
     return createRangeFromOffsets(textIndex.nodes, match.start, match.end);
+  }
+
+  function findElementFromAnchor(anchor: LocalAnchor): HTMLImageElement | HTMLCanvasElement | null {
+    if (!anchor.selectors) return null;
+
+    const selector = anchor.selectors.find((item): item is ElementSelector => {
+      return item.type === "ElementSelector";
+    });
+    if (!selector?.cssSelector || !selector.tagName) return null;
+
+    const directMatch = document.querySelector(selector.cssSelector);
+    if (isAnnotatableElement(directMatch) && matchesElementSelector(directMatch, selector)) {
+      return directMatch;
+    }
+
+    const candidates = Array.from(document.querySelectorAll(selector.tagName));
+    const signatureMatches = candidates.filter((candidate) => {
+      return isAnnotatableElement(candidate) && matchesElementSelector(candidate, selector);
+    });
+
+    if (signatureMatches.length === 1) {
+      return signatureMatches[0];
+    }
+
+    if (typeof selector.ordinal !== "number") {
+      return null;
+    }
+
+    const ordinalMatches = signatureMatches.filter((candidate) => {
+      return getAnnotatableOrdinal(candidate) === selector.ordinal;
+    });
+    return ordinalMatches.length === 1 ? ordinalMatches[0] : null;
+  }
+
+  function matchesElementSelector(
+    element: HTMLImageElement | HTMLCanvasElement,
+    selector: ElementSelector,
+  ): boolean {
+    if (element.tagName.toLowerCase() !== selector.tagName) return false;
+    if (element instanceof HTMLImageElement) {
+      if (selector.src && element.getAttribute("src") !== selector.src) return false;
+      if ((selector.alt ?? "") !== (element.getAttribute("alt") ?? "")) return false;
+    }
+    if (
+      typeof selector.width === "number" &&
+      getNumericElementDimension(element, "width") !== selector.width
+    ) {
+      return false;
+    }
+    if (
+      typeof selector.height === "number" &&
+      getNumericElementDimension(element, "height") !== selector.height
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  function findAnchorFragments(anchor: LocalAnchor): DOMRect[] {
+    const element = findElementFromAnchor(anchor);
+    if (element) {
+      const rect = element.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        return [rect];
+      }
+    }
+
+    const range = findAnchorRange(anchor);
+    if (!range) return [];
+    return collectTextNodeFragments(range);
   }
 
   function collectDocumentTextIndex() {
@@ -954,68 +1216,74 @@
   }
 
   function activateHighlight(commentId: string) {
-    deactivateHighlights();
-    const els = document.querySelectorAll(`[data-comment-id="${commentId}"]`);
-    els.forEach((el) => el.classList.add("active"));
-    if (els.length > 0) {
-      els[0].scrollIntoView({ behavior: "smooth", block: "center" });
+    activeHighlightId = commentId;
+    applyActiveHighlightState(commentId);
+    const rects = highlightRects.get(commentId);
+    if (rects && rects.length > 0) {
+      rects[0].scrollIntoView({ behavior: "smooth", block: "center" });
     }
   }
 
   function deactivateHighlights() {
-    document.querySelectorAll(".collab-highlight.active").forEach((el) => {
-      el.classList.remove("active");
-    });
+    activeHighlightId = null;
+    for (const rects of highlightRects.values()) {
+      rects.forEach((rect) => rect.classList.remove("active"));
+    }
   }
 
-  // Remote selections
-  const remoteSelections = new Map<string, HTMLElement[]>();
+  function applyHoveredHighlightState() {
+    for (const [id, rects] of highlightRects) {
+      rects.forEach((rect) => {
+        rect.classList.toggle("hovered", id === hoveredHighlightId);
+      });
+    }
+  }
+
+  function applyActiveHighlightState(commentId: string) {
+    for (const [id, rects] of highlightRects) {
+      rects.forEach((rect) => {
+        rect.classList.toggle("active", id === commentId);
+      });
+    }
+  }
 
   function renderRemoteSelection(
     email: string,
     color: string,
-    anchor: {
-      selectors?: {
-        type: string;
-        exact?: string;
-        prefix?: string;
-        suffix?: string;
-        start?: number;
-        end?: number;
-      }[];
-    },
+    anchor: LocalAnchor,
   ) {
     clearRemoteSelection(email);
     if (!anchor || !anchor.selectors) return;
 
-    const range = findAnchorRange(anchor);
-    if (!range) return;
+    remoteSelectionState.set(email, { color, anchor });
+    syncOverlayRootBounds();
+    const fragments = findAnchorFragments(anchor);
+    if (fragments.length === 0) return;
 
-    const marks = wrapRangeWithMarks(range, () => {
-      const mark = document.createElement("mark");
-      mark.className = "collab-selection";
-      mark.dataset.selectionEmail = email;
-      mark.style.background = color + "20";
-      return mark;
+    const rects = createOverlayRects(
+      fragments,
+      "collab-selection-rect",
+      "selectionEmail",
+      email,
+    );
+    rects.forEach((rect) => {
+      rect.style.background = color + "20";
     });
 
-    if (marks.length > 0) {
-      remoteSelections.set(email, marks);
+    if (rects.length > 0) {
+      remoteSelections.set(email, rects);
     }
   }
 
   function clearRemoteSelection(email: string) {
-    const marks = remoteSelections.get(email);
-    if (!marks) return;
-    for (const mark of marks) {
-      if (mark.parentNode) {
-        const p = mark.parentNode;
-        while (mark.firstChild) p.insertBefore(mark.firstChild, mark);
-        p.removeChild(mark);
+    const rects = remoteSelections.get(email);
+    if (rects) {
+      for (const rect of rects) {
+        rect.remove();
       }
     }
     remoteSelections.delete(email);
-    document.body.normalize();
+    remoteSelectionState.delete(email);
   }
 
   function getCssSelector(el: Element): string {
@@ -1023,16 +1291,9 @@
     const parts: string[] = [];
     let current: Element | null = el;
     while (current && current !== document.body) {
-      let selector = current.tagName.toLowerCase();
-      if (current.parentElement) {
-        const siblings = Array.from(current.parentElement.children).filter(
-          (c) => c.tagName === current!.tagName,
-        );
-        if (siblings.length > 1) {
-          selector +=
-            ":nth-child(" + (Array.from(current.parentElement.children).indexOf(current) + 1) + ")";
-        }
-      }
+      const selector =
+        current.tagName.toLowerCase() +
+        ":nth-child(" + (Array.from(current.parentElement?.children ?? []).indexOf(current) + 1) + ")";
       parts.unshift(selector);
       current = current.parentElement;
     }
@@ -1040,5 +1301,21 @@
   }
 
   // Signal parent that collab-client is ready to receive messages
+  window.addEventListener("resize", () => {
+    syncOverlayRootBounds();
+    if (renderedHighlights.length > 0) {
+      renderHighlights(renderedHighlights);
+    } else {
+      clearHighlightRects();
+      reportHighlightPositions();
+    }
+
+    const selections = Array.from(remoteSelectionState.entries());
+    clearRemoteSelectionRects();
+    for (const [email, selection] of selections) {
+      renderRemoteSelection(email, selection.color, selection.anchor);
+    }
+  });
+
   sendToParent({ type: "collab:ready" });
 })();

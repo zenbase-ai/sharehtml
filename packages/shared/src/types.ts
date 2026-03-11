@@ -34,7 +34,23 @@ export interface RegionSelector {
   height: number;
 }
 
-export type Selector = TextQuoteSelector | TextPositionSelector | CssSelector | RegionSelector;
+export interface ElementSelector {
+  type: "ElementSelector";
+  cssSelector: string;
+  tagName: "img" | "canvas";
+  ordinal?: number;
+  src?: string;
+  alt?: string;
+  width?: number;
+  height?: number;
+}
+
+export type Selector =
+  | TextQuoteSelector
+  | TextPositionSelector
+  | CssSelector
+  | RegionSelector
+  | ElementSelector;
 
 export interface Anchor {
   selectors: Selector[];

@@ -3,7 +3,8 @@ import type { Env } from "../types.js";
 import type { ClientMessage, ServerMessage } from "@sharehtml/shared";
 import type { Anchor, Comment, Reaction, UserPresence } from "@sharehtml/shared";
 import { getRegistry } from "../utils/registry.js";
-import { findAnchorRangeInText, rebuildAnchor } from "../utils/anchors.js";
+import { findAnchorRangeInText, getElementSelector, rebuildAnchor } from "../utils/anchors.js";
+import { collectAnnotatableElementsFromHtml, remapElementAnchor } from "../utils/document-elements.js";
 import { diffText, mapRangeThroughDiff } from "../utils/text-diff.js";
 
 interface WsAttachment {
@@ -176,12 +177,23 @@ export class DocumentDO extends DurableObject<Env> {
     }
 
     if (url.pathname.endsWith("/migrate-anchors") && request.method === "POST") {
-      const body = await request.json<{ oldText?: string; newText?: string }>();
-      if (typeof body.oldText !== "string" || typeof body.newText !== "string") {
-        return Response.json({ error: "oldText and newText are required" }, { status: 400 });
+      const body = await request.json<{
+        newHtml?: string;
+        oldText?: string;
+        newText?: string;
+      }>();
+      if (
+        typeof body.newHtml !== "string" ||
+        typeof body.oldText !== "string" ||
+        typeof body.newText !== "string"
+      ) {
+        return Response.json(
+          { error: "newHtml, oldText, and newText are required" },
+          { status: 400 },
+        );
       }
 
-      const summary = this.migrateAnchors(body.oldText, body.newText);
+      const summary = await this.migrateAnchors(body.newHtml, body.oldText, body.newText);
       return Response.json(summary);
     }
 
@@ -488,18 +500,19 @@ export class DocumentDO extends DurableObject<Env> {
     this.broadcast({ type: "reaction:added", reaction });
   }
 
-  private migrateAnchors(oldText: string, newText: string) {
+  private async migrateAnchors(newHtml: string, oldText: string, newText: string) {
     let updatedComments = 0;
     let resolvedComments = 0;
     let reactionsChanged = false;
     const textDiff = diffText(oldText, newText);
+    const nextElements = await collectAnnotatableElementsFromHtml(newHtml);
 
     const commentRows = this.sql.exec("SELECT * FROM comments ORDER BY created_at ASC").toArray();
     for (const row of commentRows) {
       const comment = this.rowToComment(row as Record<string, SqlStorageValue>);
       if (!comment.anchor) continue;
 
-      const nextAnchor = this.remapAnchor(comment.anchor, oldText, newText, textDiff);
+      const nextAnchor = this.remapAnchor(comment.anchor, oldText, newText, textDiff, nextElements);
       if (nextAnchor === "resolve") {
         if (comment.resolved) continue;
         this.sql.exec(
@@ -536,7 +549,7 @@ export class DocumentDO extends DurableObject<Env> {
     const reactionRows = this.sql.exec("SELECT * FROM reactions ORDER BY created_at ASC").toArray();
     for (const row of reactionRows) {
       const reaction = this.rowToReaction(row as Record<string, SqlStorageValue>);
-      const nextAnchor = this.remapAnchor(reaction.anchor, oldText, newText, textDiff);
+      const nextAnchor = this.remapAnchor(reaction.anchor, oldText, newText, textDiff, nextElements);
 
       if (nextAnchor === "resolve") {
         this.sql.exec("DELETE FROM reactions WHERE id = ?", reaction.id);
@@ -615,7 +628,12 @@ export class DocumentDO extends DurableObject<Env> {
     oldText: string,
     newText: string,
     textDiff: ReturnType<typeof diffText>,
+    nextElements: Awaited<ReturnType<typeof collectAnnotatableElementsFromHtml>>,
   ): Anchor | "resolve" | null {
+    if (getElementSelector(anchor)) {
+      return remapElementAnchor(anchor, nextElements);
+    }
+
     const previousRange = findAnchorRangeInText(oldText, anchor);
     if (!previousRange) {
       return "resolve";
