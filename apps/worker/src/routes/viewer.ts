@@ -68,7 +68,7 @@ viewer.get("/d/:id/content", async (c) => {
 
   // Inject collaboration script before </body>
   const assets = await getAssetUrls(c.env.ASSETS);
-  const script = `<script type="module" src="${assets.collabJs}"></script>`;
+  const script = `<script src="${assets.collabJs}"></script>`;
   if (html.includes("</body>")) {
     html = html.replace("</body>", `${script}</body>`);
   } else {
@@ -84,10 +84,12 @@ viewer.get("/d/:id/ws", async (c) => {
 
   // Verify identity and pass to DO so it can't be spoofed
   const user = await getAuthenticatedUser(c.req.raw, c.env);
-  const headers = new Headers(c.req.raw.headers);
-  if (user) {
-    headers.set("X-Verified-Email", user.email);
+  if (!user) {
+    return c.text("Unauthorized", 401);
   }
+
+  const headers = new Headers(c.req.raw.headers);
+  headers.set("X-Verified-Email", user.email);
 
   const docId = c.env.DOCUMENT_DO.idFromName(id);
   const docDo = c.env.DOCUMENT_DO.get(docId);

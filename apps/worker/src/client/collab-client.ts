@@ -2,6 +2,21 @@
   const parent = window.parent;
   if (parent === window) return; // Not in iframe
 
+  let parentOrigin: string | null = null;
+
+  function sendToParent(message: Record<string, unknown>) {
+    parent.postMessage(message, parentOrigin ?? "*");
+  }
+
+  function isTrustedParentMessage(event: MessageEvent): boolean {
+    return event.source === parent && event.origin === parentOrigin;
+  }
+
+  function isParentInitMessage(event: MessageEvent): boolean {
+    return event.source === parent && event.data?.type === "collab:init" &&
+      typeof event.origin === "string";
+  }
+
   // Styles for in-document elements
   const style = document.createElement("style");
   style.textContent = `
@@ -268,13 +283,12 @@
       currentSelection = processSelection();
       if (!currentSelection) {
         if (!emojiPicker) removeToolbar();
-        parent.postMessage({ type: "selection:clear" }, "*");
+        sendToParent({ type: "selection:clear" });
         return;
       }
       showToolbar(currentSelection.rect);
-      parent.postMessage(
+      sendToParent(
         { type: "selection:made", text: currentSelection.text, anchor: currentSelection.anchor },
-        "*",
       );
     }, 10);
   });
@@ -372,7 +386,7 @@
       e.stopPropagation();
       const content = input.value.trim();
       if (!content) return;
-      parent.postMessage(
+      sendToParent(
         {
           type: "comment:start",
           text: savedSelection.text,
@@ -380,7 +394,6 @@
           pixelY: savedSelection.rect.top + window.scrollY,
           content,
         },
-        "*",
       );
       window.getSelection()?.removeAllRanges();
       mobileBar!.classList.remove("visible");
@@ -421,10 +434,7 @@
       btn.textContent = emoji;
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
-        parent.postMessage(
-          { type: "reaction:add", emoji, anchor: savedSelection.anchor },
-          "*",
-        );
+        sendToParent({ type: "reaction:add", emoji, anchor: savedSelection.anchor });
         window.getSelection()?.removeAllRanges();
         mobileBar!.classList.remove("visible");
         currentSelection = null;
@@ -457,13 +467,12 @@
         if (currentSelection) {
           if (mobileBarMode !== "actions") showMobileActions();
           mobileBar!.classList.add("visible");
-          parent.postMessage(
+          sendToParent(
             { type: "selection:made", text: currentSelection.text, anchor: currentSelection.anchor },
-            "*",
           );
         } else {
           mobileBar!.classList.remove("visible");
-          parent.postMessage({ type: "selection:clear" }, "*");
+          sendToParent({ type: "selection:clear" });
         }
       }, 200);
     });
@@ -493,14 +502,13 @@
     commentBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       if (currentSelection) {
-        parent.postMessage(
+        sendToParent(
           {
             type: "comment:start",
             text: currentSelection.text,
             anchor: currentSelection.anchor,
             pixelY: currentSelection.rect.top + window.scrollY,
           },
-          "*",
         );
         removeToolbar();
         window.getSelection()?.removeAllRanges();
@@ -599,14 +607,13 @@
 
   function submitReaction(emoji: string) {
     if (currentSelection) {
-      parent.postMessage(
+      sendToParent(
         {
           type: "reaction:add",
           emoji,
           text: currentSelection.text,
           anchor: currentSelection.anchor,
         },
-        "*",
       );
       removeToolbar();
       window.getSelection()?.removeAllRanges();
@@ -624,26 +631,32 @@
         pixelPositions[id] = el.getBoundingClientRect().top + window.scrollY;
       }
     });
-    parent.postMessage({
+    sendToParent({
       type: "highlights:positions",
       positions,
       pixelPositions,
       scrollHeight: document.documentElement.scrollHeight,
-    }, "*");
+    });
   }
 
   // Sync scroll with parent sidebar
   window.addEventListener("scroll", () => {
-    parent.postMessage({
+    sendToParent({
       type: "iframe:scroll",
       scrollTop: window.scrollY,
       scrollHeight: document.documentElement.scrollHeight,
-    }, "*");
+    });
   }, { passive: true });
 
   // Receive messages from parent
   window.addEventListener("message", (e) => {
-    if (e.source !== parent) return;
+    if (parentOrigin === null) {
+      if (!isParentInitMessage(e)) return;
+      parentOrigin = e.origin;
+      return;
+    }
+
+    if (!isTrustedParentMessage(e)) return;
     const msg = e.data;
 
     switch (msg.type) {
@@ -678,11 +691,11 @@
         reportHighlightPositions();
         break;
       case "scroll:request":
-        parent.postMessage({
+        sendToParent({
           type: "iframe:scroll",
           scrollTop: window.scrollY,
           scrollHeight: document.documentElement.scrollHeight,
-        }, "*");
+        });
         break;
     }
   });
@@ -705,7 +718,7 @@
       const range = findTextRange(textQuote.exact!, textQuote.prefix, textQuote.suffix);
       if (!range) orphaned.push(comment.id);
     }
-    parent.postMessage({ type: "highlights:orphaned", ids: orphaned }, "*");
+    sendToParent({ type: "highlights:orphaned", ids: orphaned });
   }
 
   // Highlight rendering
@@ -778,7 +791,7 @@
       mark.className = "collab-highlight";
       mark.dataset.commentId = comment.id;
       mark.addEventListener("click", () => {
-        parent.postMessage({ type: "highlight:click", commentId: comment.id }, "*");
+        sendToParent({ type: "highlight:click", commentId: comment.id });
       });
       return mark;
     });
@@ -947,5 +960,5 @@
   }
 
   // Signal parent that collab-client is ready to receive messages
-  parent.postMessage({ type: "collab:ready" }, "*");
+  sendToParent({ type: "collab:ready" });
 })();

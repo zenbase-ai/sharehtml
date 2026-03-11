@@ -63,7 +63,7 @@ export function ShellView({ docId, title, ownerEmail, email, assets }: ShellPara
             <iframe
               id="doc-iframe"
               src={`/d/${docId}/content`}
-              sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+              sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
             ></iframe>
           </div>
           <div class="sidebar" id="sidebar">

@@ -45,12 +45,21 @@ const shareModal = document.getElementById("share-modal")!;
 const shareLinkInput = document.getElementById("share-link-input") as HTMLInputElement;
 const shareCopyBtn = document.getElementById("share-copy-btn")!;
 const sidebarBackdrop = document.getElementById("sidebar-backdrop")!;
+const SANDBOXED_IFRAME_ORIGIN = "null";
+
+function sendToIframe(message: Record<string, unknown>) {
+  iframe.contentWindow?.postMessage(message, "*");
+}
+
+function isTrustedIframeMessage(event: MessageEvent) {
+  return event.source === iframe.contentWindow && event.origin === SANDBOXED_IFRAME_ORIGIN;
+}
 
 function closeSidebar() {
   sidebar.classList.add("collapsed");
   localStorage.setItem(sidebarKey, "collapsed");
   sidebarBackdrop.classList.remove("visible");
-  iframe.contentWindow?.postMessage({ type: "sidebar:state", open: false }, "*");
+  sendToIframe({ type: "sidebar:state", open: false });
 }
 
 // Init
@@ -64,8 +73,9 @@ function init() {
 
   // Tell iframe whether to hide its scrollbar (desktop only — on mobile sidebar is overlay)
   iframe.addEventListener("load", () => {
+    sendToIframe({ type: "collab:init" });
     const isOpen = !sidebar.classList.contains("collapsed") && window.innerWidth > 768;
-    iframe.contentWindow?.postMessage({ type: "sidebar:state", open: isOpen }, "*");
+    sendToIframe({ type: "sidebar:state", open: isOpen });
   });
 }
 
@@ -107,7 +117,7 @@ function setupEventListeners() {
     sidebarBackdrop.classList.toggle("visible", isOpen);
     // On mobile, sidebar is overlay — don't hide iframe scrollbar
     const hideScroll = isOpen && window.innerWidth > 768;
-    iframe.contentWindow?.postMessage({ type: "sidebar:state", open: hideScroll }, "*");
+    sendToIframe({ type: "sidebar:state", open: hideScroll });
   });
 
   sidebarBackdrop.addEventListener("click", closeSidebar);
@@ -147,19 +157,13 @@ function setupEventListeners() {
     sidebarContent.scrollTop += e.deltaY;
     iframeScrollTop = sidebarContent.scrollTop;
     requestAnimationFrame(() => { iframeDriven = false; });
-    iframe.contentWindow?.postMessage(
-      { type: "scroll:delta", deltaY: e.deltaY },
-      "*",
-    );
+    sendToIframe({ type: "scroll:delta", deltaY: e.deltaY });
   }, { passive: false });
 
   // Forward sidebar scrollbar drag to iframe (desktop only)
   sidebarContent.addEventListener("scroll", () => {
     if (iframeDriven || window.innerWidth <= 768) return;
-    iframe.contentWindow?.postMessage(
-      { type: "scroll:to", scrollTop: sidebarContent.scrollTop },
-      "*",
-    );
+    sendToIframe({ type: "scroll:to", scrollTop: sidebarContent.scrollTop });
   });
 
   // Listen for messages from iframe
@@ -266,7 +270,7 @@ function handleServerMessage(msg: Record<string, unknown>) {
     case "user:left":
       users.delete(msg.email as string);
       renderPresence();
-      iframe.contentWindow?.postMessage({ type: "selection:remote:clear", email: msg.email }, "*");
+      sendToIframe({ type: "selection:remote:clear", email: msg.email });
       break;
 
     case "user:name_set": {
@@ -283,23 +287,17 @@ function handleServerMessage(msg: Record<string, unknown>) {
     case "presence:updated":
       if (msg.selection) {
         const u = users.get(msg.email as string);
-        iframe.contentWindow?.postMessage(
-          {
-            type: "selection:remote",
-            email: msg.email,
-            color: u?.color || "#000",
-            anchor: (msg.selection as { anchor: Anchor }).anchor,
-          },
-          "*",
-        );
+        sendToIframe({
+          type: "selection:remote",
+          email: msg.email,
+          color: u?.color || "#000",
+          anchor: (msg.selection as { anchor: Anchor }).anchor,
+        });
       } else {
-        iframe.contentWindow?.postMessage(
-          {
-            type: "selection:remote:clear",
-            email: msg.email,
-          },
-          "*",
-        );
+        sendToIframe({
+          type: "selection:remote:clear",
+          email: msg.email,
+        });
       }
       break;
 
@@ -359,7 +357,7 @@ function handleServerMessage(msg: Record<string, unknown>) {
 
 // Handle messages from iframe
 function handleIframeMessage(e: MessageEvent) {
-  if (e.source !== iframe.contentWindow) return;
+  if (!isTrustedIframeMessage(e)) return;
   const msg = e.data;
 
   switch (msg.type) {
@@ -398,12 +396,13 @@ function handleIframeMessage(e: MessageEvent) {
 
     case "collab:ready":
       // Iframe collab-client just loaded — re-send highlights and state
+      sendToIframe({ type: "collab:init" });
       updateHighlights();
-      iframe.contentWindow?.postMessage({
+      sendToIframe({
         type: "sidebar:state",
         open: !sidebar.classList.contains("collapsed"),
-      }, "*");
-      iframe.contentWindow?.postMessage({ type: "scroll:request" }, "*");
+      });
+      sendToIframe({ type: "scroll:request" });
       break;
 
     case "highlights:orphaned":
@@ -689,7 +688,7 @@ function createReactionCard(group: ReactionGroup) {
   quote.className = "comment-quote";
   quote.textContent = group.text.length > 80 ? group.text.slice(0, 80) + "..." : group.text;
   quote.addEventListener("click", () => {
-    iframe.contentWindow?.postMessage({ type: "highlight:activate", commentId: reactionId }, "*");
+    sendToIframe({ type: "highlight:activate", commentId: reactionId });
     if (window.innerWidth <= 768) closeSidebar();
   });
   card.appendChild(quote);
@@ -810,10 +809,7 @@ function createCommentCard(comment: Comment) {
       quote.className = "comment-quote";
       quote.textContent = tqs.exact.length > 80 ? tqs.exact.slice(0, 80) + "..." : tqs.exact;
       quote.addEventListener("click", () => {
-        iframe.contentWindow?.postMessage(
-          { type: "highlight:activate", commentId: comment.id },
-          "*",
-        );
+        sendToIframe({ type: "highlight:activate", commentId: comment.id });
         if (window.innerWidth <= 768) closeSidebar();
       });
       card.appendChild(quote);
@@ -880,7 +876,7 @@ function createCommentCard(comment: Comment) {
     )
       return;
     activeCommentId = comment.id;
-    iframe.contentWindow?.postMessage({ type: "highlight:activate", commentId: comment.id }, "*");
+    sendToIframe({ type: "highlight:activate", commentId: comment.id });
     if (window.innerWidth <= 768) {
       closeSidebar();
     } else {
@@ -1057,16 +1053,16 @@ function openSidebar(): boolean {
   sidebar.classList.remove("collapsed");
   localStorage.setItem(sidebarKey, "open");
   sidebarBackdrop.classList.add("visible");
-  iframe.contentWindow?.postMessage({ type: "sidebar:state", open: window.innerWidth > 768 }, "*");
+  sendToIframe({ type: "sidebar:state", open: window.innerWidth > 768 });
   if (wasCollapsed) {
     // Suppress scroll sync during transition — iframe scroll resets as it resizes
     suppressScrollSync = true;
     sidebar.addEventListener("transitionend", () => {
       suppressScrollSync = false;
       // Restore iframe scroll to where it was before sidebar opened
-      iframe.contentWindow?.postMessage({ type: "scroll:to", scrollTop: savedScrollTop }, "*");
+      sendToIframe({ type: "scroll:to", scrollTop: savedScrollTop });
       iframeScrollTop = savedScrollTop;
-      iframe.contentWindow?.postMessage({ type: "highlights:request" }, "*");
+      sendToIframe({ type: "highlights:request" });
     }, { once: true });
   }
   return wasCollapsed;
@@ -1077,7 +1073,7 @@ function openCompose(text: string, anchor: Anchor, pixelY = 0) {
   composeAnchor = anchor;
   composePixelY = pixelY;
   updateHighlights();
-  iframe.contentWindow?.postMessage({ type: "highlight:activate", commentId: "__compose__" }, "*");
+  sendToIframe({ type: "highlight:activate", commentId: "__compose__" });
   const wasCollapsed = openSidebar();
   // If transitioning from collapsed, transitionend will trigger re-render with correct layout
   if (!wasCollapsed) renderComments();
@@ -1088,7 +1084,7 @@ function scrollToComment(commentId: string) {
   const wasCollapsed = openSidebar();
   if (!wasCollapsed) renderComments();
   // Scroll the iframe to the highlight — sidebar will follow via scroll sync
-  iframe.contentWindow?.postMessage({ type: "highlight:activate", commentId }, "*");
+  sendToIframe({ type: "highlight:activate", commentId });
 }
 
 function updateHighlights() {
@@ -1100,22 +1096,16 @@ function updateHighlights() {
   if (composeAnchor) {
     items.push({ id: "__compose__", anchor: composeAnchor, resolved: false } as any);
   }
-  iframe.contentWindow?.postMessage(
-    {
-      type: "highlights:render",
-      comments: items,
-    },
-    "*",
-  );
+  sendToIframe({
+    type: "highlights:render",
+    comments: items,
+  });
   // Check for orphaned comments after a short delay to let highlights render
   setTimeout(() => {
-    iframe.contentWindow?.postMessage(
-      {
-        type: "highlights:check",
-        comments: topLevel,
-      },
-      "*",
-    );
+    sendToIframe({
+      type: "highlights:check",
+      comments: topLevel,
+    });
   }, 100);
 }
 

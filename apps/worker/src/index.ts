@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { cors } from "hono/cors";
 import type { Env } from "./types.js";
 import { api } from "./routes/api.js";
 import { viewer } from "./routes/viewer.js";
@@ -11,8 +10,6 @@ export { DocumentDO } from "./durable-objects/document.js";
 export { RegistryDO } from "./durable-objects/registry.js";
 
 const app = new Hono<{ Bindings: Env }>();
-
-app.use("/api/*", cors());
 
 app.route("/api", api);
 app.route("/", viewer);

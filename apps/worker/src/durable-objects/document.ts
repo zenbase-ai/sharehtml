@@ -360,12 +360,38 @@ export class DocumentDO extends DurableObject<Env> {
     const attachment = this.getAttachment(ws);
     if (!attachment) return;
 
-    this.sql.exec(
-      "DELETE FROM comments WHERE id = ? AND author_email = ?",
+    const rows = this.sql.exec(
+      "SELECT id, author_email FROM comments WHERE id = ?",
       msg.id,
-      attachment.email,
-    );
-    this.sql.exec("DELETE FROM comments WHERE parent_id = ?", msg.id);
+    ).toArray();
+    if (rows.length === 0) return;
+
+    const comment = rows[0] as { id: string; author_email: string };
+    if (comment.author_email !== attachment.email) return;
+
+    const idsToDelete = new Set<string>([msg.id]);
+    const queue = [msg.id];
+
+    while (queue.length > 0) {
+      const parentId = queue.shift()!;
+      const childRows = this.sql
+        .exec("SELECT id FROM comments WHERE parent_id = ?", parentId)
+        .toArray() as Array<{ id: string }>;
+
+      for (const child of childRows) {
+        if (idsToDelete.has(child.id)) continue;
+        idsToDelete.add(child.id);
+        queue.push(child.id);
+      }
+    }
+
+    for (const id of idsToDelete) {
+      this.sql.exec(
+        "DELETE FROM comments WHERE id = ?",
+        id,
+      );
+    }
+
     this.broadcast({ type: "comment:deleted", id: msg.id });
   }
 
