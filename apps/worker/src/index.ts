@@ -18,22 +18,30 @@ app.get("/", async (c) => {
   const user = await getAuthenticatedUser(c.req.raw, c.env);
   if (!user) return c.text("Unauthorized", 401);
   const email = user.email;
+  const url = new URL(c.req.url);
+  const query = (url.searchParams.get("q") || "").trim();
+  const requestedPage = Number.parseInt(url.searchParams.get("page") || "1", 10);
+  const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+  const pageSize = 10;
 
   const registry = getRegistry(c.env);
 
-  const [documents, recentViews] = await Promise.all([
-    registry.listDocuments(email),
+  const [documentsPage, recentViews] = await Promise.all([
+    registry.listDocumentsPage(email, { query, limit: pageSize, page }),
     registry.getRecentViews(email, 3),
   ]);
 
-  const url = new URL(c.req.url);
   const workerUrl = `${url.protocol}//${url.host}`;
   return c.html(
     HomeView({
       email,
       workerUrl,
-      documents: documents as any,
+      documents: documentsPage.documents as any,
       recentViews: recentViews as any,
+      query,
+      page: documentsPage.page,
+      pageSize,
+      totalCount: documentsPage.totalCount,
       requiresLogin: c.env.AUTH_MODE === "access",
     }),
   );

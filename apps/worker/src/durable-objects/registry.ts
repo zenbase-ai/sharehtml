@@ -137,6 +137,51 @@ export class RegistryDO extends DurableObject<Env> {
     return this.sql.exec("SELECT * FROM documents ORDER BY created_at DESC LIMIT 500").toArray();
   }
 
+  async listDocumentsPage(
+    ownerEmail: string,
+    options: { query?: string; limit: number; page: number },
+  ) {
+    const searchQuery = options.query?.trim() || "";
+    const params: Array<string | number> = [ownerEmail];
+    let whereClause = "owner_email = ?";
+
+    if (searchQuery) {
+      whereClause += " AND (title LIKE ? OR filename LIKE ?)";
+      const likeQuery = `%${searchQuery}%`;
+      params.push(likeQuery, likeQuery);
+    }
+
+    const countRows = this.sql
+      .exec(
+        `SELECT COUNT(*) as count FROM documents
+         WHERE ${whereClause}`,
+        ...params,
+      )
+      .toArray() as Array<{ count: number }>;
+    const totalCount = Number(countRows[0]?.count || 0);
+    const totalPages = Math.max(1, Math.ceil(totalCount / options.limit));
+    const page = Math.min(Math.max(1, options.page), totalPages);
+    const offset = (page - 1) * options.limit;
+
+    const documents = this.sql
+      .exec(
+        `SELECT * FROM documents
+         WHERE ${whereClause}
+         ORDER BY created_at DESC
+         LIMIT ? OFFSET ?`,
+        ...params,
+        options.limit,
+        offset,
+      )
+      .toArray();
+
+    return {
+      documents,
+      totalCount,
+      page,
+    };
+  }
+
   async getDocumentByFilename(filename: string, ownerEmail: string) {
     const rows = this.sql
       .exec(

@@ -78,8 +78,27 @@ api.get("/documents/recent", async (c) => {
 api.get("/documents", async (c) => {
   const owner = c.get("apiUser");
   const registry = getRegistry(c.env);
-  const documents = await registry.listDocuments(owner);
-  return c.json({ documents });
+  const query = (c.req.query("q") || "").trim();
+  const limitQuery = Number.parseInt(c.req.query("limit") || "", 10);
+  const pageQuery = Number.parseInt(c.req.query("page") || "", 10);
+  const hasPaginationParams = Boolean(c.req.query("q")) || Boolean(c.req.query("limit")) ||
+    Boolean(c.req.query("page"));
+
+  if (!hasPaginationParams) {
+    const documents = await registry.listDocuments(owner);
+    return c.json({ documents });
+  }
+
+  const limit = Number.isFinite(limitQuery) && limitQuery > 0 ? limitQuery : 10;
+  const page = Number.isFinite(pageQuery) && pageQuery > 0 ? pageQuery : 1;
+  const result = await registry.listDocumentsPage(owner, { query, limit, page });
+  return c.json({
+    documents: result.documents,
+    totalCount: result.totalCount,
+    page: result.page,
+    pageSize: limit,
+    query,
+  });
 });
 
 // Download raw document content
