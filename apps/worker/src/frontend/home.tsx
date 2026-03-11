@@ -1,6 +1,7 @@
 /** @jsxImportSource hono/jsx */
 import { raw } from "hono/utils/html";
 import type { HtmlEscapedString } from "hono/utils/html";
+import type { AssetUrls } from "../utils/assets.js";
 
 interface Document {
   id: string;
@@ -13,6 +14,7 @@ interface Document {
 }
 
 interface HomeParams {
+  assets: AssetUrls;
   email: string;
   workerUrl: string;
   documents: Document[];
@@ -255,6 +257,7 @@ function getHomeSearchScript(pageSize: number, workerUrl: string, page: number):
 }
 
 export function HomeView({
+  assets,
   email,
   workerUrl,
   documents,
@@ -281,276 +284,14 @@ export function HomeView({
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>sharehtml</title>
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-        <style>
-          {raw(`
-          * { margin: 0; padding: 0; box-sizing: border-box; }
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            font-size: 14px;
-            line-height: 1.5;
-            color: #000000;
-            background: #ffffff;
-            height: 100vh;
-            overflow-y: auto;
-          }
-          .topbar {
-            height: 44px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 0 16px;
-            border-bottom: 1px solid #000000;
-            background: #ffffff;
-            position: sticky;
-            top: 0;
-            z-index: 10;
-          }
-          .topbar-title {
-            font-size: 14px;
-            font-weight: 500;
-          }
-          .topbar-right {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-          }
-          .topbar-email {
-            font-size: 12px;
-            font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, monospace;
-            color: #a3a3a3;
-          }
-          .content {
-            max-width: 640px;
-            margin: 0 auto;
-            padding: 32px 16px;
-          }
-          .section {
-            margin-bottom: 32px;
-          }
-          .section-label {
-            font-size: 12px;
-            font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, monospace;
-            color: #737373;
-            margin-bottom: 12px;
-          }
-          .section-header {
-            display: flex;
-            align-items: baseline;
-            justify-content: space-between;
-            gap: 12px;
-            margin-bottom: 12px;
-          }
-          .section-meta {
-            font-size: 12px;
-            font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, monospace;
-            color: #a3a3a3;
-            white-space: nowrap;
-          }
-          .section-empty {
-            font-size: 13px;
-            color: #a3a3a3;
-            padding: 16px 0;
-          }
-          .docs-search-form {
-            margin-bottom: 12px;
-          }
-          .docs-search-input {
-            width: 100%;
-            border: none;
-            border-bottom: 1px solid #000000;
-            padding: 8px 0;
-            font-size: 13px;
-            outline: none;
-            background: none;
-            min-width: 0;
-          }
-          .docs-search-input::placeholder {
-            color: #a3a3a3;
-          }
-          .docs-pagination-link {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            min-height: 32px;
-            padding: 0 12px;
-            border: 1px solid #000000;
-            border-radius: 4px;
-            background: #ffffff;
-            color: #000000;
-            text-decoration: none;
-            font-size: 12px;
-            cursor: pointer;
-            transition: all 120ms ease;
-          }
-          .docs-search-submit:hover,
-          .docs-pagination-link:hover {
-            background: #000000;
-            color: #ffffff;
-          }
-          .docs-pagination {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            margin-top: 12px;
-          }
-          .docs-pagination-status {
-            font-size: 12px;
-            font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, monospace;
-            color: #a3a3a3;
-            text-align: center;
-            flex: 1;
-          }
-          .docs-pagination-spacer {
-            width: 72px;
-            flex-shrink: 0;
-          }
-          .doc-list {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-          }
-          .recent-grid {
-            display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 8px;
-          }
-          .recent-card {
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            min-height: 112px;
-            border: 1px solid #d4d4d4;
-            border-radius: 4px;
-            padding: 12px;
-            text-decoration: none;
-            color: inherit;
-            transition: border-color 120ms ease;
-            animation: fadeIn 150ms ease;
-          }
-          .recent-card:hover {
-            border-color: #000000;
-          }
-          .recent-card-title {
-            font-size: 14px;
-            font-weight: 500;
-            line-height: 1.35;
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
-            margin-bottom: 10px;
-          }
-          .recent-card-filename {
-            font-size: 12px;
-            font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, monospace;
-            color: #a3a3a3;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            margin-bottom: 14px;
-          }
-          .recent-card-meta {
-            font-size: 12px;
-            font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, monospace;
-            color: #737373;
-          }
-          .doc-card {
-            display: block;
-            border: 1px solid #d4d4d4;
-            border-radius: 4px;
-            padding: 12px;
-            text-decoration: none;
-            color: inherit;
-            transition: border-color 120ms ease;
-            animation: fadeIn 150ms ease;
-          }
-          .doc-card:hover {
-            border-color: #000000;
-          }
-          .doc-card-top {
-            display: flex;
-            align-items: baseline;
-            justify-content: space-between;
-            gap: 12px;
-            margin-bottom: 4px;
-          }
-          .doc-card-title {
-            font-size: 14px;
-            font-weight: 500;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-          }
-          .doc-card-filename {
-            font-size: 12px;
-            font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, monospace;
-            color: #a3a3a3;
-            flex-shrink: 0;
-          }
-          .doc-card-bottom {
-            display: flex;
-            align-items: baseline;
-            justify-content: space-between;
-          }
-          .doc-card-meta {
-            font-size: 12px;
-            font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, monospace;
-            color: #a3a3a3;
-          }
-          .setup-block {
-            border: 1px solid #d4d4d4;
-            border-radius: 4px;
-            padding: 20px;
-          }
-          .setup-block p {
-            font-size: 13px;
-            color: #737373;
-            margin-bottom: 16px;
-            line-height: 1.5;
-          }
-          .setup-block p a {
-            color: #000000;
-          }
-          .setup-block pre {
-            background: #f5f5f5;
-            border: 1px solid #d4d4d4;
-            border-radius: 4px;
-            padding: 12px 14px;
-            font-size: 12px;
-            font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, monospace;
-            line-height: 1.7;
-            overflow-x: auto;
-            white-space: pre;
-            color: #000000;
-          }
-          .setup-block .cmd-comment {
-            color: #a3a3a3;
-          }
-          @media (max-width: 768px) {
-            .section-header {
-              align-items: flex-start;
-              flex-direction: column;
-              gap: 4px;
-            }
-            .docs-pagination {
-              gap: 8px;
-            }
-            .docs-pagination-link,
-            .docs-pagination-spacer {
-              width: 72px;
-            }
-          }
-          @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(4px); }
-            to { opacity: 1; transform: translateY(0); }
-          }
-        `)}
-        </style>
+        {assets.homeCss && <link rel="stylesheet" href={assets.homeCss} />}
+        {assets.homeClientJs && <script type="module" src={assets.homeClientJs}></script>}
       </head>
       <body>
         <div class="topbar">
-          <div class="topbar-title">sharehtml</div>
+          <a class="topbar-home" href="/">
+            sharehtml
+          </a>
           <div class="topbar-right">
             <span class="topbar-email">{email}</span>
           </div>

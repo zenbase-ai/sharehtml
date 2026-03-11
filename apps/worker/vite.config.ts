@@ -7,6 +7,7 @@ export default defineConfig({
     manifest: "manifest.json",
     rollupOptions: {
       input: {
+        "home-client": "src/client/home-client.ts",
         "shell-client": "src/client/shell-client.ts",
         "collab-client": "src/client/collab-client.ts",
       },

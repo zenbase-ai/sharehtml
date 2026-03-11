@@ -4,6 +4,7 @@ import { api } from "./routes/api.js";
 import { viewer } from "./routes/viewer.js";
 import { HomeView } from "./frontend/home.js";
 import { getAuthenticatedUser } from "./utils/auth.js";
+import { getAssetUrls } from "./utils/assets.js";
 import { getRegistry } from "./utils/registry.js";
 
 export { DocumentDO } from "./durable-objects/document.js";
@@ -32,8 +33,10 @@ app.get("/", async (c) => {
   ]);
 
   const workerUrl = `${url.protocol}//${url.host}`;
+  const assets = await getAssetUrls(c.env.ASSETS);
   return c.html(
     HomeView({
+      assets,
       email,
       workerUrl,
       documents: documentsPage.documents as any,
