@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NBA Slideshow</title>
+    <style>
+      :root {
+        --bg: #f4efe6;
+        --surface: #fffaf2;
+        --text: #161616;
+        --muted: #6d655b;
+        --border: #1f1f1f;
+        --accent: #d55d2a;
+        --accent-soft: #f1d7c8;
+        --slide-width: 900;
+        --slide-height: 560;
+        --slide-scale: 1;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: Georgia, "Times New Roman", serif;
+        background:
+          radial-gradient(circle at top left, #fff8ee 0, transparent 32%),
+          linear-gradient(180deg, #efe7db 0%, var(--bg) 100%);
+        color: var(--text);
+      }
+
+      .deck {
+        width: min(980px, calc(100vw - 32px));
+        margin: 24px auto;
+        border: 2px solid var(--border);
+        background: var(--surface);
+        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.08);
+        display: flex;
+        flex-direction: column;
+        height: min(680px, calc(100vh - 48px));
+      }
+
+      :fullscreen .deck {
+        width: 100vw;
+        height: 100vh;
+        margin: 0;
+        border: none;
+        box-shadow: none;
+      }
+
+      .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+        padding: 14px 18px;
+        border-bottom: 2px solid var(--border);
+        font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+        font-size: 13px;
+      }
+
+      .topbar strong {
+        color: var(--accent);
+      }
+
+      .stage {
+        position: relative;
+        overflow: hidden;
+        flex: 1;
+        background: linear-gradient(180deg, rgba(255, 250, 242, 0.5), rgba(255, 250, 242, 0.96));
+      }
+
+      .slide {
+        display: none;
+        position: absolute;
+        inset: 0;
+      }
+
+      .slide.active {
+        display: block;
+      }
+
+      .slide-canvas {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: calc(var(--slide-width) * 1px);
+        height: calc(var(--slide-height) * 1px);
+        padding: 34px 40px 28px;
+        transform: translate(-50%, -50%) scale(var(--slide-scale));
+        transform-origin: center center;
+      }
+
+      .eyebrow {
+        display: inline-block;
+        margin-bottom: 18px;
+        padding: 4px 8px;
+        border: 1px solid var(--border);
+        background: var(--accent-soft);
+        font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      h1,
+      h2 {
+        margin: 0 0 14px;
+        line-height: 1;
+        font-weight: 700;
+      }
+
+      h1 {
+        font-size: clamp(28px, 3.9vw, 48px);
+        max-width: 13ch;
+      }
+
+      h2 {
+        font-size: clamp(28px, 3.8vw, 48px);
+      }
+
+      p {
+        margin: 0;
+        font-size: 19px;
+        line-height: 1.35;
+        color: var(--muted);
+      }
+
+      .hero-grid,
+      .trend-grid,
+      .teams-grid {
+        display: grid;
+        gap: 22px;
+      }
+
+      .hero-grid {
+        grid-template-columns: 1.2fr 0.8fr;
+        align-items: end;
+        margin-top: 14px;
+      }
+
+      .poster,
+      .panel,
+      .team-card {
+        border: 1.5px solid var(--border);
+        background: #fff;
+      }
+
+      .poster {
+        min-height: 190px;
+        padding: 16px;
+        background:
+          linear-gradient(140deg, rgba(213, 93, 42, 0.22), transparent 60%),
+          linear-gradient(180deg, #fffaf6, #f7eee2);
+      }
+
+      .poster .big {
+        font-size: clamp(56px, 10vw, 112px);
+        line-height: 0.85;
+        color: var(--accent);
+      }
+
+      .poster .small {
+        margin-top: 8px;
+        font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+        font-size: 12px;
+        color: var(--text);
+      }
+
+      .panel {
+        padding: 14px;
+      }
+
+      .panel + .panel {
+        margin-top: 14px;
+      }
+
+      .label {
+        display: block;
+        margin-bottom: 8px;
+        font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+        font-size: 12px;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .value {
+        font-size: 21px;
+        line-height: 1;
+      }
+
+      .slide-intro p {
+        max-width: 48rem;
+        font-size: 18px;
+      }
+
+      .slide-intro h1 {
+        max-width: 16ch;
+        font-size: 42px;
+        line-height: 0.95;
+        margin-bottom: 12px;
+      }
+
+      .slide-intro .hero-grid {
+        gap: 18px;
+        margin-top: 10px;
+      }
+
+      .slide-intro .poster {
+        min-height: 160px;
+        padding: 14px;
+      }
+
+      .slide-intro .poster .big {
+        font-size: 92px;
+      }
+
+      .slide-intro .panel {
+        padding: 12px;
+      }
+
+      .slide-intro .value {
+        font-size: 18px;
+      }
+
+      .trend-grid {
+        grid-template-columns: 1fr 1fr;
+        margin-top: 22px;
+        align-items: stretch;
+        height: 240px;
+      }
+
+      .trend-grid .panel {
+        min-height: 0;
+        height: 240px;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .trend-grid .panel + .panel {
+        margin-top: 0;
+      }
+
+      .shot-board {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        height: 100%;
+      }
+
+      .shot-board-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 12px;
+        font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+      }
+
+      .shot-board-title {
+        color: var(--text);
+      }
+
+      .shot-rows {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+
+      .shot-row {
+        display: grid;
+        grid-template-columns: 96px 1fr auto;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .shot-label {
+        font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text);
+      }
+
+      .shot-track {
+        height: 18px;
+        border: 1.5px solid var(--border);
+        background: linear-gradient(180deg, rgba(241, 215, 200, 0.5), rgba(255, 255, 255, 0.9));
+        position: relative;
+      }
+
+      .shot-fill {
+        height: 100%;
+        border-right: 1.5px solid var(--border);
+        background: linear-gradient(90deg, #f0bb9f 0%, #d55d2a 100%);
+      }
+
+      .shot-value {
+        min-width: 44px;
+        text-align: right;
+        font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+        font-size: 12px;
+        color: var(--text);
+      }
+
+      .shot-footnote {
+        margin-top: auto;
+        padding-top: 10px;
+        border-top: 1px solid rgba(31, 31, 31, 0.18);
+        font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+        font-size: 11px;
+        line-height: 1.5;
+        color: var(--muted);
+      }
+
+      .note {
+        padding: 18px;
+        font-size: 18px;
+      }
+
+      .teams-grid {
+        grid-template-columns: repeat(3, 1fr);
+        margin-top: 26px;
+      }
+
+      .team-card {
+        padding: 18px;
+        min-height: 220px;
+      }
+
+      .team-rank {
+        display: inline-block;
+        margin-bottom: 14px;
+        font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+        font-size: 12px;
+        padding: 4px 8px;
+        border: 1px solid var(--border);
+      }
+
+      .team-name {
+        font-size: 32px;
+        margin-bottom: 10px;
+      }
+
+      .team-card p {
+        font-size: 18px;
+      }
+
+      .controls {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 18px;
+        border-top: 2px solid var(--border);
+      }
+
+      .controls-left,
+      .controls-right {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .controls button {
+        border: 1.5px solid var(--border);
+        background: #fff;
+        color: var(--text);
+        padding: 10px 14px;
+        font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+        font-size: 13px;
+        cursor: pointer;
+      }
+
+      .controls button:hover {
+        background: var(--accent-soft);
+      }
+
+      .pager {
+        font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      @media (max-width: 780px) {
+        .deck {
+          height: calc(100vh - 24px);
+          margin: 12px auto;
+        }
+
+        .slide {
+          position: relative;
+          inset: auto;
+          min-height: auto;
+        }
+
+        .slide-canvas {
+          position: relative;
+          top: auto;
+          left: auto;
+          width: auto;
+          height: auto;
+          padding: 26px 22px;
+          transform: none;
+        }
+
+        .hero-grid,
+        .trend-grid,
+        .teams-grid {
+          grid-template-columns: 1fr;
+        }
+
+        p {
+          font-size: 18px;
+        }
+
+        .team-card {
+          min-height: 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="deck">
+      <div class="topbar">
+        <div><strong>sharehtml</strong> nba snapshot</div>
+        <div>interactive 3-slide demo</div>
+      </div>
+
+      <div class="stage">
+        <section class="slide slide-intro active">
+          <div class="slide-canvas">
+            <span class="eyebrow">slide 1 / the big picture</span>
+            <h1>the nba is a year-round entertainment machine</h1>
+            <p>
+              The league lives at the intersection of star power, tactical evolution, and nonstop
+              social media momentum. Every season becomes a running story, not just a standings table.
+            </p>
+
+            <div class="hero-grid">
+              <div class="poster">
+                <div class="big">82</div>
+                <div class="small">games per team before the playoffs even begin</div>
+              </div>
+
+              <div>
+                <div class="panel">
+                  <span class="label">why it sticks</span>
+                  <div class="value">stars + spacing + speed</div>
+                </div>
+                <div class="panel">
+                  <span class="label">what fans track</span>
+                  <div class="value">runs, trades, matchups, health</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="slide">
+          <div class="slide-canvas">
+            <span class="eyebrow">slide 2 / style of play</span>
+            <h2>modern offense is built around space</h2>
+            <p>
+              Teams stretch the floor, hunt advantages, and turn every possession into a geometry
+              problem. Shooters pull defenders outward, while creators attack the seams.
+            </p>
+
+            <div class="trend-grid">
+              <div class="panel">
+                <div class="shot-board">
+                  <div class="shot-board-header">
+                    <span class="shot-board-title">shot mix</span>
+                    <span>share of attempts</span>
+                  </div>
+
+                  <div class="shot-rows">
+                    <div class="shot-row">
+                      <div class="shot-label">midrange</div>
+                      <div class="shot-track"><div class="shot-fill" style="width: 18%"></div></div>
+                      <div class="shot-value">18%</div>
+                    </div>
+                    <div class="shot-row">
+                      <div class="shot-label">paint</div>
+                      <div class="shot-track"><div class="shot-fill" style="width: 34%"></div></div>
+                      <div class="shot-value">34%</div>
+                    </div>
+                    <div class="shot-row">
+                      <div class="shot-label">three</div>
+                      <div class="shot-track"><div class="shot-fill" style="width: 48%"></div></div>
+                      <div class="shot-value">48%</div>
+                    </div>
+                  </div>
+
+                  <div class="shot-footnote">
+                    spacing shifts volume toward the rim and arc, while long twos get squeezed out.
+                  </div>
+                </div>
+              </div>
+
+              <div class="panel note">
+                The result is faster decision-making, more ball movement, and a constant tension
+                between rim pressure and perimeter volume.
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="slide">
+          <div class="slide-canvas">
+            <span class="eyebrow">slide 3 / contenders</span>
+            <h2>every season still comes down to a few clean questions</h2>
+            <p>
+              Which teams have elite creators, playoff-proof defenses, and enough lineup flexibility
+              to survive a long series?
+            </p>
+
+            <div class="teams-grid">
+              <div class="team-card">
+                <div class="team-rank">01</div>
+                <div class="team-name">depth</div>
+                <p>Can the rotation hold up when the game slows down and weak links get targeted?</p>
+              </div>
+              <div class="team-card">
+                <div class="team-rank">02</div>
+                <div class="team-name">shot creation</div>
+                <p>Who can generate a good look late in the clock when actions are blown up?</p>
+              </div>
+              <div class="team-card">
+                <div class="team-rank">03</div>
+                <div class="team-name">health</div>
+                <p>The most talented team still needs availability to turn upside into wins.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="controls">
+        <div class="controls-left">
+          <button id="prev-btn" type="button">prev</button>
+          <button id="next-btn" type="button">next</button>
+        </div>
+        <div class="pager" id="pager">1 / 3</div>
+        <div class="controls-right">
+          <button id="fullscreen-btn" type="button">fullscreen</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const SLIDE_WIDTH = 900;
+      const SLIDE_HEIGHT = 560;
+      const slides = Array.from(document.querySelectorAll(".slide"));
+      const pager = document.getElementById("pager");
+      const prevBtn = document.getElementById("prev-btn");
+      const nextBtn = document.getElementById("next-btn");
+      const fullscreenBtn = document.getElementById("fullscreen-btn");
+      const deck = document.querySelector(".deck");
+      const stage = document.querySelector(".stage");
+      let index = 0;
+
+      function render() {
+        slides.forEach((slide, slideIndex) => {
+          slide.classList.toggle("active", slideIndex === index);
+        });
+        pager.textContent = `${index + 1} / ${slides.length}`;
+        updateScale();
+      }
+
+      function updateScale() {
+        if (window.innerWidth <= 780) return;
+
+        const scale = Math.min(stage.clientWidth / SLIDE_WIDTH, stage.clientHeight / SLIDE_HEIGHT);
+        deck.style.setProperty("--slide-scale", Math.max(scale, 0.5).toString());
+      }
+
+      prevBtn.addEventListener("click", () => {
+        index = (index - 1 + slides.length) % slides.length;
+        render();
+      });
+
+      nextBtn.addEventListener("click", () => {
+        index = (index + 1) % slides.length;
+        render();
+      });
+
+      fullscreenBtn.addEventListener("click", async () => {
+        if (!document.fullscreenElement) {
+          await deck.requestFullscreen();
+          return;
+        }
+
+        await document.exitFullscreen();
+      });
+
+      window.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowLeft") {
+          index = (index - 1 + slides.length) % slides.length;
+          render();
+        }
+        if (event.key === "ArrowRight") {
+          index = (index + 1) % slides.length;
+          render();
+        }
+        if (event.key.toLowerCase() === "f") {
+          fullscreenBtn.click();
+        }
+      });
+
+      document.addEventListener("fullscreenchange", () => {
+        fullscreenBtn.textContent = document.fullscreenElement ? "exit fullscreen" : "fullscreen";
+        updateScale();
+      });
+
+      window.addEventListener("resize", updateScale);
+      updateScale();
+    </script>
+  </body>
+</html>

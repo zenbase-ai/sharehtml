@@ -27,7 +27,10 @@ const users = new Map<string, UserPresence>();
 let comments: Comment[] = [];
 let showResolved = false;
 let activeCommentId: string | null = null;
-let orphanedIds = new Set<string>();
+let orphanedAnnotationIds = new Set<string>();
+let hiddenAnnotationIds = new Set<string>();
+const hiddenSectionKey = "comment_hidden_section_" + DOC_ID;
+let showHiddenSection = localStorage.getItem(hiddenSectionKey) === "expanded";
 const sidebarKey = "comment_sidebar_" + DOC_ID;
 let reactions: Reaction[] = [];
 let composeAnchor: Anchor | null = null;
@@ -39,14 +42,17 @@ let iframeScrollTop = 0;
 let iframeDriven = false;
 let suppressScrollSync = false;
 let sidebarSpacer: HTMLElement | null = null;
+let hasAnimatedHighlights = false;
 let isShared = AUTH_MODE === "access" ? config.isShared : true;
 let shareMessageOverride: string | null = null;
 let isSavingShareState = false;
+const ANNOTATION_ALIGNMENT_BIAS_PX = 24;
 
 // Elements
 const iframe = document.getElementById("doc-iframe") as HTMLIFrameElement;
 const sidebar = document.getElementById("sidebar")!;
 const sidebarContent = document.getElementById("sidebar-content")!;
+const hiddenSectionHost = document.createElement("div");
 const sidebarToggle = document.getElementById("sidebar-toggle")!;
 const presenceDots = document.getElementById("presence-dots")!;
 const commentCount = document.getElementById("comment-count")!;
@@ -64,6 +70,9 @@ const shareToggle = document.getElementById("share-toggle") as HTMLInputElement;
 const shareNote = document.getElementById("share-note")!;
 const sidebarBackdrop = document.getElementById("sidebar-backdrop")!;
 const SANDBOXED_IFRAME_ORIGIN = "null";
+
+hiddenSectionHost.className = "sidebar-hidden-host";
+sidebar.appendChild(hiddenSectionHost);
 
 function sendToIframe(message: Record<string, unknown>) {
   iframe.contentWindow?.postMessage(message, "*");
@@ -511,16 +520,56 @@ function handleIframeMessage(e: MessageEvent) {
       sendToIframe({ type: "scroll:request" });
       break;
 
-    case "highlights:orphaned":
-      orphanedIds = new Set(msg.ids);
-      renderComments();
+    case "highlights:states":
+      {
+        const nextHiddenIds = new Set(msg.hidden || []);
+        const nextOrphanedIds = new Set(msg.orphaned || []);
+        const statesChanged =
+          !setsEqual(hiddenAnnotationIds, nextHiddenIds) ||
+          !setsEqual(orphanedAnnotationIds, nextOrphanedIds);
+        hiddenAnnotationIds = nextHiddenIds;
+        orphanedAnnotationIds = nextOrphanedIds;
+        if (!composeAnchor && statesChanged) {
+          renderComments();
+        }
+      }
       break;
 
-    case "highlights:positions":
-      highlightPixelPositions = msg.pixelPositions || {};
+    case "highlights:positions": {
+      const nextPixelPositions = msg.pixelPositions || {};
       if (msg.scrollHeight) iframeScrollHeight = msg.scrollHeight;
-      renderComments();
+      const nextAnimatedHighlights = Boolean(msg.animating);
+      let shouldRender = false;
+
+      if (nextAnimatedHighlights) {
+        if (!hasAnimatedHighlights) {
+          highlightPixelPositions = nextPixelPositions;
+          shouldRender = true;
+        } else {
+          const mergedPixelPositions = { ...highlightPixelPositions };
+          let addedPosition = false;
+          for (const [id, top] of Object.entries(nextPixelPositions)) {
+            if (id in mergedPixelPositions) continue;
+            mergedPixelPositions[id] = top;
+            addedPosition = true;
+          }
+          if (addedPosition) {
+            highlightPixelPositions = mergedPixelPositions;
+            shouldRender = true;
+          }
+        }
+      } else {
+        highlightPixelPositions = nextPixelPositions;
+        shouldRender = true;
+      }
+
+      hasAnimatedHighlights = nextAnimatedHighlights;
+
+      if (!composeAnchor && shouldRender) {
+        renderComments();
+      }
       break;
+    }
 
     case "iframe:scroll":
       iframeScrollHeight = msg.scrollHeight;
@@ -653,9 +702,23 @@ interface ReactionGroup {
 function renderComments() {
   const topLevel = comments.filter((c) => !c.parent_id);
   const filtered = showResolved ? topLevel : topLevel.filter((c) => !c.resolved);
+  const visibleComments = filtered.filter((comment) => !hiddenAnnotationIds.has(comment.id));
+  const hiddenComments = filtered.filter((comment) => hiddenAnnotationIds.has(comment.id));
   const resolvedCount = topLevel.filter((c) => c.resolved).length;
   const reactionGroups = getReactionGroups();
+  const visibleReactionGroups = reactionGroups.filter((group) =>
+    !hiddenAnnotationIds.has(getReactionGroupId(group))
+  );
+  const hiddenReactionGroups = reactionGroups.filter((group) =>
+    hiddenAnnotationIds.has(getReactionGroupId(group))
+  );
+  const hiddenAnnotationCount = hiddenComments.length + hiddenReactionGroups.length;
   const totalItems = topLevel.length + reactionGroups.length;
+  const hasVisibleAnnotations =
+    visibleComments.length > 0 || visibleReactionGroups.length > 0 || Boolean(composeAnchor);
+  const hiddenSectionForcedOpen = hiddenAnnotationCount > 0 && !hasVisibleAnnotations;
+  const hiddenSectionExpanded = hiddenAnnotationCount > 0 &&
+    (showHiddenSection || hiddenSectionForcedOpen);
 
   commentCount.textContent = totalItems + " annotation" + (totalItems !== 1 ? "s" : "");
   const toggleText = sidebarToggle.querySelector(".sidebar-toggle-text");
@@ -663,13 +726,23 @@ function renderComments() {
   filterResolved.textContent = showResolved ? "hide resolved" : "resolved (" + resolvedCount + ")";
   (filterResolved as HTMLElement).style.display = resolvedCount > 0 ? "" : "none";
 
-  if (filtered.length === 0 && reactionGroups.length === 0 && !composeAnchor) {
+  if (
+    visibleComments.length === 0 &&
+    hiddenComments.length === 0 &&
+    visibleReactionGroups.length === 0 &&
+    hiddenReactionGroups.length === 0 &&
+    !composeAnchor
+  ) {
+    hiddenSectionHost.innerHTML = "";
+    hiddenSectionHost.classList.remove("visible");
     sidebarContent.innerHTML =
       '<div class="sidebar-empty">select text in the document to add a comment or reaction</div>';
     return;
   }
 
   sidebarContent.innerHTML = "";
+  hiddenSectionHost.innerHTML = "";
+  hiddenSectionHost.classList.remove("visible");
 
   // Build unified list of annotations sorted by document position
   type Annotation =
@@ -678,12 +751,11 @@ function renderComments() {
     | { kind: "compose"; id: string };
 
   const annotations: Annotation[] = [];
-  for (const comment of filtered) {
+  for (const comment of visibleComments) {
     annotations.push({ kind: "comment", id: comment.id, comment });
   }
-  for (const group of reactionGroups) {
-    const key = reactionAnchorKey(group.anchor);
-    annotations.push({ kind: "reaction", id: "reaction_" + (key || group.text), group });
+  for (const group of visibleReactionGroups) {
+    annotations.push({ kind: "reaction", id: getReactionGroupId(group), group });
   }
   if (composeAnchor) {
     annotations.push({ kind: "compose", id: "__compose__" });
@@ -712,7 +784,7 @@ function renderComments() {
 
     // Position card to align with its anchor in the document (desktop only)
     if (hasPixelPositions && item.id in allPixelPositions) {
-      const targetY = allPixelPositions[item.id];
+      const targetY = Math.max(0, allPixelPositions[item.id] - ANNOTATION_ALIGNMENT_BIAS_PX);
       const gap = Math.max(8, targetY - lastBottom);
       card.style.marginTop = gap + "px";
     } else {
@@ -727,6 +799,49 @@ function renderComments() {
     idx++;
   }
 
+  if (hiddenAnnotationCount > 0) {
+    const hiddenSection = document.createElement("div");
+    hiddenSection.className = "sidebar-section";
+    if (!hiddenSectionExpanded) {
+      hiddenSection.classList.add("collapsed");
+    }
+
+    const heading = hiddenSectionForcedOpen
+      ? document.createElement("div")
+      : document.createElement("button");
+    heading.className = hiddenSectionForcedOpen ? "sidebar-section-label" : "sidebar-section-toggle";
+    heading.textContent = getHiddenSectionLabel(
+      hiddenAnnotationCount,
+      hiddenSectionExpanded,
+      hiddenSectionForcedOpen,
+    );
+    if (heading instanceof HTMLButtonElement) {
+      heading.type = "button";
+      heading.addEventListener("click", () => {
+        showHiddenSection = !hiddenSectionExpanded;
+        localStorage.setItem(hiddenSectionKey, showHiddenSection ? "expanded" : "collapsed");
+        renderComments();
+      });
+    }
+    hiddenSection.appendChild(heading);
+
+    if (hiddenSectionExpanded) {
+      for (const comment of hiddenComments) {
+        const card = createCommentCard(comment);
+        card.style.marginTop = "12px";
+        hiddenSection.appendChild(card);
+      }
+      for (const group of hiddenReactionGroups) {
+        const card = createReactionCard(group);
+        card.style.marginTop = "12px";
+        hiddenSection.appendChild(card);
+      }
+    }
+
+    hiddenSectionHost.classList.add("visible");
+    hiddenSectionHost.appendChild(hiddenSection);
+  }
+
   if (!isMobile) {
     // Add spacer so sidebar's max scrollTop matches iframe's max scrollTop
     sidebarSpacer = document.createElement("div");
@@ -739,6 +854,22 @@ function renderComments() {
     sidebarContent.scrollTop = iframeScrollTop;
     iframeDriven = false;
   }
+}
+
+function getHiddenSectionLabel(count: number, expanded: boolean, forcedOpen: boolean) {
+  if (forcedOpen) {
+    return count + " hidden on current view";
+  }
+
+  return count + " hidden on current view" + (expanded ? " -" : " +");
+}
+
+function setsEqual(left: Set<string>, right: Set<string>) {
+  if (left.size !== right.size) return false;
+  for (const value of left) {
+    if (!right.has(value)) return false;
+  }
+  return true;
 }
 
 function createAnnotationCard(
@@ -786,6 +917,11 @@ function reactionAnchorKey(anchor: Anchor): string | null {
   return tqs.exact + "_" + (hash >>> 0).toString(36);
 }
 
+function getReactionGroupId(group: ReactionGroup): string {
+  const key = reactionAnchorKey(group.anchor);
+  return "reaction_" + (key || group.text);
+}
+
 function getAnchorLabel(anchor: Anchor): string | null {
   const textQuote = anchor.selectors?.find((selector) => selector.type === "TextQuoteSelector");
   if (textQuote && "exact" in textQuote) {
@@ -822,9 +958,11 @@ function getReactionGroups(): ReactionGroup[] {
 
 function createReactionCard(group: ReactionGroup) {
   const card = document.createElement("div");
-  const key = reactionAnchorKey(group.anchor);
-  const reactionId = "reaction_" + (key || group.text);
-  card.className = "reaction-card" + (activeCommentId === reactionId ? " active" : "");
+  const reactionId = getReactionGroupId(group);
+  card.className =
+    "reaction-card" +
+    (activeCommentId === reactionId ? " active" : "") +
+    (hiddenAnnotationIds.has(reactionId) ? " hidden-view" : "");
   card.dataset.commentId = reactionId;
 
   // Quoted text
@@ -920,7 +1058,8 @@ function createCommentCard(comment: Comment) {
     "comment-card" +
     (comment.resolved ? " resolved" : "") +
     (activeCommentId === comment.id ? " active" : "") +
-    (orphanedIds.has(comment.id) ? " orphaned" : "");
+    (hiddenAnnotationIds.has(comment.id) ? " hidden-view" : "") +
+    (orphanedAnnotationIds.has(comment.id) ? " orphaned" : "");
   card.dataset.commentId = comment.id;
 
   const header = document.createElement("div");
@@ -1248,7 +1387,7 @@ function updateHighlights() {
   setTimeout(() => {
     sendToIframe({
       type: "highlights:check",
-      comments: topLevel,
+      comments: [...topLevel, ...reactionItems],
     });
   }, 100);
 }

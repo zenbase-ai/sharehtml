@@ -771,6 +771,7 @@ import type { Anchor, ElementSelector, Selector } from "@sharehtml/shared";
       type: "highlights:positions",
       positions,
       pixelPositions,
+      animating: hasAnimatingAnchors(),
       scrollHeight: document.documentElement.scrollHeight,
     });
   }
@@ -887,7 +888,8 @@ import type { Anchor, ElementSelector, Selector } from "@sharehtml/shared";
         renderHighlights(msg.comments);
         break;
       case "highlights:check":
-        checkOrphanedComments(msg.comments);
+        checkedComments = msg.comments;
+        reportHighlightStates(msg.comments);
         break;
       case "highlight:activate":
         activateHighlight(msg.commentId);
@@ -930,13 +932,18 @@ import type { Anchor, ElementSelector, Selector } from "@sharehtml/shared";
     parent_id?: string | null;
   }
 
-  function checkOrphanedComments(comments: HighlightComment[]) {
+  let checkedComments: HighlightComment[] = [];
+
+  function reportHighlightStates(comments: HighlightComment[]) {
+    const hidden: string[] = [];
     const orphaned: string[] = [];
     for (const comment of comments) {
       if (!comment.anchor || comment.resolved || comment.parent_id) continue;
-      if (findAnchorFragments(comment.anchor).length === 0) orphaned.push(comment.id);
+      const visibility = getAnchorVisibility(comment.anchor);
+      if (visibility.kind === "hidden") hidden.push(comment.id);
+      if (visibility.kind === "orphaned") orphaned.push(comment.id);
     }
-    sendToParent({ type: "highlights:orphaned", ids: orphaned });
+    sendToParent({ type: "highlights:states", hidden, orphaned });
   }
 
   // Highlight rendering
@@ -961,6 +968,8 @@ import type { Anchor, ElementSelector, Selector } from "@sharehtml/shared";
     requestAnimationFrame(() => {
       reportHighlightPositions();
     });
+
+    ensureAnimationRefreshLoop();
   }
 
   function applyHighlight(comment: HighlightComment) {
@@ -1101,17 +1110,31 @@ import type { Anchor, ElementSelector, Selector } from "@sharehtml/shared";
   }
 
   function findAnchorFragments(anchor: LocalAnchor): DOMRect[] {
+    const visibility = getAnchorVisibility(anchor);
+    return visibility.kind === "visible" ? visibility.fragments : [];
+  }
+
+  function getAnchorVisibility(
+    anchor: LocalAnchor,
+  ): { kind: "visible"; fragments: DOMRect[] } | { kind: "hidden" } | { kind: "orphaned" } {
     const element = findElementFromAnchor(anchor);
     if (element) {
       const rect = element.getBoundingClientRect();
       if (rect.width > 0 && rect.height > 0) {
-        return [rect];
+        return { kind: "visible", fragments: [rect] };
       }
+      return { kind: "hidden" };
     }
 
+    const elementSelector = anchor.selectors?.find((selector) => selector.type === "ElementSelector");
+    if (elementSelector) return { kind: "orphaned" };
+
     const range = findAnchorRange(anchor);
-    if (!range) return [];
-    return collectTextNodeFragments(range);
+    if (!range) return { kind: "orphaned" };
+
+    const fragments = collectTextNodeFragments(range);
+    if (fragments.length === 0) return { kind: "hidden" };
+    return { kind: "visible", fragments };
   }
 
   function collectDocumentTextIndex() {
@@ -1273,6 +1296,8 @@ import type { Anchor, ElementSelector, Selector } from "@sharehtml/shared";
     if (rects.length > 0) {
       remoteSelections.set(email, rects);
     }
+
+    ensureAnimationRefreshLoop();
   }
 
   function clearRemoteSelection(email: string) {
@@ -1300,8 +1325,7 @@ import type { Anchor, ElementSelector, Selector } from "@sharehtml/shared";
     return "body > " + parts.join(" > ");
   }
 
-  // Signal parent that collab-client is ready to receive messages
-  window.addEventListener("resize", () => {
+  function rerenderOverlays() {
     syncOverlayRootBounds();
     if (renderedHighlights.length > 0) {
       renderHighlights(renderedHighlights);
@@ -1310,10 +1334,119 @@ import type { Anchor, ElementSelector, Selector } from "@sharehtml/shared";
       reportHighlightPositions();
     }
 
+    if (checkedComments.length > 0) {
+      reportHighlightStates(checkedComments);
+    }
+
     const selections = Array.from(remoteSelectionState.entries());
     clearRemoteSelectionRects();
     for (const [email, selection] of selections) {
       renderRemoteSelection(email, selection.color, selection.anchor);
+    }
+
+    ensureAnimationRefreshLoop();
+  }
+
+  let refreshScheduled = false;
+  let animationRefreshFrame: number | null = null;
+
+  function scheduleOverlayRefresh() {
+    if (refreshScheduled) return;
+    refreshScheduled = true;
+    requestAnimationFrame(() => {
+      refreshScheduled = false;
+      rerenderOverlays();
+    });
+  }
+
+  function hasTrackedOverlayState(): boolean {
+    return renderedHighlights.length > 0 || checkedComments.length > 0 || remoteSelectionState.size > 0;
+  }
+
+  function hasAnimatingAnchors(): boolean {
+    if (document.hidden || !hasTrackedOverlayState()) return false;
+
+    for (const comment of renderedHighlights) {
+      if (comment.anchor && anchorHasRunningAnimation(comment.anchor)) {
+        return true;
+      }
+    }
+
+    for (const selection of remoteSelectionState.values()) {
+      if (anchorHasRunningAnimation(selection.anchor)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  function runAnimationRefreshLoop() {
+    animationRefreshFrame = null;
+    rerenderOverlays();
+  }
+
+  function ensureAnimationRefreshLoop() {
+    if (animationRefreshFrame !== null) return;
+    if (!hasAnimatingAnchors()) return;
+    animationRefreshFrame = requestAnimationFrame(runAnimationRefreshLoop);
+  }
+
+  function anchorHasRunningAnimation(anchor: LocalAnchor): boolean {
+    const element = findElementFromAnchor(anchor);
+    if (element) {
+      return elementOrAncestorHasRunningAnimation(element);
+    }
+
+    const range = findAnchorRange(anchor);
+    if (!range) return false;
+
+    const startElement = range.startContainer instanceof Element
+      ? range.startContainer
+      : range.startContainer.parentElement;
+    return elementOrAncestorHasRunningAnimation(startElement);
+  }
+
+  function elementOrAncestorHasRunningAnimation(element: Element | null): boolean {
+    let current = element;
+    while (current) {
+      if (current.getAnimations().some((animation) => animation.playState === "running")) {
+        return true;
+      }
+      current = current.parentElement;
+    }
+    return false;
+  }
+
+  function isOverlayMutationTarget(target: Node): boolean {
+    return target === overlayRoot || overlayRoot.contains(target);
+  }
+
+  const mutationObserver = new MutationObserver((mutations) => {
+    const shouldRefresh = mutations.some((mutation) => {
+      return !isOverlayMutationTarget(mutation.target);
+    });
+
+    if (shouldRefresh) {
+      scheduleOverlayRefresh();
+    }
+  });
+
+  mutationObserver.observe(document.body, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ["class", "style", "hidden"],
+  });
+
+  // Signal parent that collab-client is ready to receive messages
+  window.addEventListener("resize", () => {
+    rerenderOverlays();
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      ensureAnimationRefreshLoop();
     }
   });
 

@@ -361,12 +361,53 @@ body {
   flex-direction: column;
   will-change: scroll-position;
 }
+.sidebar-hidden-host {
+  display: none;
+  flex-shrink: 0;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+  padding: 0 16px 16px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.sidebar-hidden-host.visible {
+  display: block;
+}
 .sidebar-empty {
   color: var(--color-text-faint);
   font-size: 13px;
   text-align: center;
   padding: 32px 16px;
   line-height: 1.6;
+}
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+}
+.sidebar-section-label,
+.sidebar-section-toggle {
+  position: sticky;
+  top: 0;
+  padding: 12px 0 10px;
+  text-align: left;
+  font-size: 11px;
+  font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-faint);
+  background: var(--color-surface);
+  z-index: 1;
+}
+.sidebar-section-toggle {
+  border: none;
+  cursor: pointer;
+}
+.sidebar-section-toggle:hover {
+  color: var(--color-text-muted);
+}
+.sidebar-section.collapsed .sidebar-section-label,
+.sidebar-section.collapsed .sidebar-section-toggle {
+  padding-bottom: 4px;
 }
 .filter-toggle {
   background: none;
@@ -403,6 +444,9 @@ body {
 }
 .comment-card.active {
   border-color: var(--color-border-strong);
+}
+.comment-card.hidden-view {
+  background: var(--color-surface-muted);
 }
 .comment-card.orphaned .comment-quote::after {
   content: " — text not found";
@@ -502,6 +546,9 @@ body {
 }
 .reaction-card.active {
   border-color: var(--color-border-strong);
+}
+.reaction-card.hidden-view {
+  background: var(--color-surface-muted);
 }
 .reaction-card .comment-quote {
   margin-bottom: 8px;

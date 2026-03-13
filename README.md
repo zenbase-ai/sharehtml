@@ -41,6 +41,8 @@ When it's done, try deploying one of the included examples:
 sharehtml deploy example/coffee-report.html
 # or try the markdown example:
 sharehtml deploy example/sample.md
+# or the interactive slideshow example:
+sharehtml deploy example/nba-slideshow.html
 # or deploy a code file:
 sharehtml deploy apps/cli/src/index.ts
 ```
