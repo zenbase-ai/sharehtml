@@ -1,12 +1,12 @@
 # sharehtml
 
-I've been using coding agents like Claude Code and OpenCode to put together data reports, interactive visualizations, and educational docs, all as plain HTML files. Way more flexible than traditional BI tools. But sending HTML files around gets messy fast: you can't update them after sharing, and there's no way to get feedback inline. This is the reason I built sharehtml.
+I've been using coding agents to write in markdown, make slides, and build interactive data analysis as static HTML files. Sending those files around still gets messy fast: you can't update them after sharing, and there's no way to get feedback inline. This is the reason I built sharehtml.
 
 This package is the Bun CLI for deploying documents to a sharehtml worker.
 
 ## What is sharehtml?
 
-Deploy an HTML, Markdown, or code file, get a link where others can view it and collaborate with comments, reactions, and live presence. Re-deploy to update the content at the same URL. Markdown and common code files are converted to styled HTML automatically.
+Deploy a local document, get a link where others can view it and collaborate with comments, reactions, and live presence. Re-deploy to update the content at the same URL. Markdown and common code files are converted to styled HTML automatically.
 
 - **CLI deploys** — `sharehtml deploy report.html` → `https://sharehtml.yourteam.workers.dev/d/9brkzbe67ntm`
 - **Collaborative** — comments, threaded replies, emoji reactions, text anchoring

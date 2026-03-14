@@ -1,7 +1,8 @@
 {
   "name": "sharehtml",
-  "version": "0.0.2",
-  "description": "Bun CLI for deploying HTML documents to sharehtml for collaborative commenting",
+  "version": "0.0.3",
+  "description": "Bun CLI for deploying local documents to sharehtml for collaborative commenting",
+  "license": "Apache-2.0",
   "type": "module",
   "repository": {
     "type": "git",
