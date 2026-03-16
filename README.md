@@ -20,6 +20,37 @@ Deploy a local document, get a link where others can view it and collaborate wit
 - [Bun](https://bun.sh/) (for the CLI and setup script)
 - [Cloudflare account](https://dash.cloudflare.com/sign-up) with [R2 enabled](https://developers.cloudflare.com/r2/pricing/#free-tier) (free tier available)
 
+## Team CLI Setup (Fork)
+
+Use this flow when your team already has a deployed worker and you just need CLI access.
+
+### 1) Install the CLI
+
+```bash
+bun install -g sharehtml
+```
+
+### 2) Configure your worker URL
+
+```bash
+sharehtml config set-url <worker-url>
+```
+
+### 3) Login
+
+```bash
+sharehtml login
+```
+
+### 4) Basic usage
+
+```bash
+sharehtml deploy my-report.html
+sharehtml list
+sharehtml open <id>
+sharehtml delete <id>
+```
+
 ## Quick Start
 
 ```bash
@@ -42,7 +73,7 @@ bun install -g sharehtml
 npm install -g sharehtml
 ```
 
-If your team already has a sharehtml worker deployed, this is probably all you need — install the CLI, run `sharehtml config set-url <your-team-url>`, then `sharehtml login`.
+If your team already has a sharehtml worker deployed, this is probably all you need — install the CLI, run `sharehtml config set-url <worker-url>`, then `sharehtml login`.
 
 If you enable Cloudflare Access, you'll need a [Cloudflare API token](https://dash.cloudflare.com/profile/api-tokens) with these permissions:
 - **Account > Access: Apps and Policies > Edit**
@@ -107,7 +138,7 @@ Browser ◄┘──► Durable Objects
 | **[R2](https://developers.cloudflare.com/r2/)** | Stores the actual HTML files |
 | **CLI** | Bun-based command-line tool for deploying and managing documents |
 
-## CLI Commands
+## CLI Command Reference (PRD)
 
 | Command | Description |
 |---------|-------------|
@@ -119,7 +150,7 @@ Browser ◄┘──► Durable Objects
 | `sharehtml share <document>` | Make a document shareable |
 | `sharehtml unshare <document>` | Make a document private |
 | `sharehtml login` | Log in through Cloudflare Access |
-| `sharehtml config set-url <url>` | Set the sharehtml URL |
+| `sharehtml config set-url <worker-url>` | Set the sharehtml URL |
 | `sharehtml config show` | Show current configuration |
 
 ## Configuration
