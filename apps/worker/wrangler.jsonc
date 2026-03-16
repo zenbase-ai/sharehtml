@@ -2,7 +2,11 @@
   "name": "sharehtml",
   "main": "src/index.ts",
   "compatibility_date": "2025-04-01",
-  "vars": {},
+  "vars": {
+    "AUTH_MODE": "access",
+    "ACCESS_AUD": "TODO_ACCESS_AUD",
+    "ACCESS_TEAM": "TODO_ACCESS_TEAM",
+  },
   "assets": {
     "not_found_handling": "none",
     "binding": "ASSETS",
