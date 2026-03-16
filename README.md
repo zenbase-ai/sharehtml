@@ -124,13 +124,27 @@ Browser ◄┘──► Durable Objects
 
 ## Configuration
 
-### Secrets (set via `pnpm run setup` or `npx wrangler secret put`)
+### Worker auth configuration
 
-| Secret | Required | Description |
-|--------|----------|-------------|
-| `AUTH_MODE` | No | `"none"` disables auth, `"access"` enables Cloudflare Access JWT verification. Defaults to no auth if unset. The setup script sets this for you. |
-| `ACCESS_AUD` | When `AUTH_MODE=access` | Cloudflare Access Application Audience tag |
-| `ACCESS_TEAM` | When `AUTH_MODE=access` | Cloudflare Access team name |
+| Key | Location | Required | Description |
+|-----|----------|----------|-------------|
+| `AUTH_MODE` | Worker secret (`wrangler secret put`) | No | `"none"` disables auth, `"access"` enables Cloudflare Access JWT verification. Defaults to no auth if unset. |
+| `ACCESS_AUD` | `apps/worker/wrangler.jsonc` (`vars`) | When `AUTH_MODE=access` | Cloudflare Access Application Audience tag (`aud`) from the Access application. |
+| `ACCESS_TEAM` | `apps/worker/wrangler.jsonc` (`vars`) | When `AUTH_MODE=access` | Cloudflare Access team name. For this deployment: `zenbase`. |
+
+### Cloudflare Zero Trust Access application (dashboard)
+
+1. Open Cloudflare dashboard for account `Synthesis` and go to `Zero Trust` -> `Access` -> `Applications`.
+2. Create (or edit) the self-hosted application for the sharehtml worker URL (`https://sharehtml.<your-subdomain>.workers.dev`).
+3. Configure an allow policy using `Emails ending in` and set it to `zenbase.ai`.
+4. Save the application, then copy its `Application Audience Tag` (`aud`).
+5. Update `apps/worker/wrangler.jsonc` and replace `REPLACE_WITH_ACCESS_APPLICATION_AUDIENCE_TAG` in `vars.ACCESS_AUD`.
+6. Set auth mode to access:
+
+```bash
+npx wrangler secret put AUTH_MODE
+# value: access
+```
 
 ## Project Structure
 

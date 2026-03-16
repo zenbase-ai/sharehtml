@@ -4,8 +4,8 @@
   "compatibility_date": "2025-04-01",
   "vars": {
     "AUTH_MODE": "access",
-    "ACCESS_AUD": "TODO_ACCESS_AUD",
-    "ACCESS_TEAM": "TODO_ACCESS_TEAM",
+    "ACCESS_TEAM": "zenbase",
+    "ACCESS_AUD": "REPLACE_WITH_ACCESS_APPLICATION_AUDIENCE_TAG",
   },
   "assets": {
     "not_found_handling": "none",
